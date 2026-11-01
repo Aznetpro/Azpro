@@ -60,7 +60,7 @@ box_bottom() {
 }
 
 show_banner() {
-echo -e "${CYAN}${BOLD}    W S P R O  F R E E  V E R S I O N${NC}"
+echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 }
 
