@@ -1,7 +1,7 @@
 #!/bin/bash
 # Mpro Installer - Version v3
 
-REPO_URL="https://github.com/Jbpro2/wspro.git"
+REPO_URL="https://github.com/Jbpro2/wzpro.git"
 REPO_BRANCH="main"
 CMD_NAME="wspro"
 TOTAL_STEPS=7
