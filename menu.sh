@@ -524,14 +524,14 @@ update_from_github() {
         return
     fi
 
-    UPDATE_SCRIPT=$(mktemp /tmp/wspro-update.XXXXXX.sh) || {
+    UPDATE_SCRIPT=$(mktemp /tmp/wzpro-update.XXXXXX.sh) || {
         echo -e "${RED}Não foi possível criar arquivo temporário.${NC}"
         read -r -p "Enter para continuar..." _
         return
     }
     echo -e "${CYAN}Baixando instalador mais recente do GitHub...${NC}"
     if ! curl -fsSL --connect-timeout 15 --max-time 60 \
-        "https://raw.githubusercontent.com/Jbpro2/wspro/main/install.sh" \
+        "https://raw.githubusercontent.com/Jbpro2/wzpro/main/install.sh" \
         -o "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}Falha ao baixar o instalador. Nada foi atualizado.${NC}"
@@ -539,7 +539,7 @@ update_from_github() {
         return
     fi
 
-    if ! grep -q 'REPO_URL="https://github.com/Jbpro2/wspro.git"' "$UPDATE_SCRIPT"; then
+    if ! grep -q 'REPO_URL="https://github.com/Jbpro2/wzpro.git"' "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}O arquivo baixado não passou na validação do repositório.${NC}"
         read -r -p "Enter para continuar..." _
@@ -584,7 +584,7 @@ uninstall_proxy() {
     echo ""
 
     if [[ "$EUID" -ne 0 ]]; then
-        echo -e "${RED}Execute wspro como root para desinstalar.${NC}"
+        echo -e "${RED}Execute wzpro como root para desinstalar.${NC}"
         read -r -p "Enter para voltar..." _
         return 1
     fi
@@ -652,6 +652,7 @@ uninstall_proxy() {
         fi
     done
 
+    remove_owned_link "/usr/local/bin/wzpro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/wspro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/mpro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/mpro-xhttp" "$LKPROXY_XHTTP"

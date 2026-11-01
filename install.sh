@@ -3,7 +3,7 @@
 
 REPO_URL="https://github.com/Jbpro2/wzpro.git"
 REPO_BRANCH="main"
-CMD_NAME="wspro"
+CMD_NAME="wzpro"
 TOTAL_STEPS=7
 
 CURRENT_STEP=0
@@ -76,7 +76,7 @@ fi
 show_progress "Instalando binários..."
 mkdir -p /opt/mpro
 
-# Parar somente os binários do proxy; não encerrar o menu wspro que iniciou
+# Parar somente os binários do proxy; não encerrar o menu wzpro que iniciou
 # esta atualização.
 systemctl stop proxy-websocket.service > /dev/null 2>&1 || true
 systemctl disable proxy-websocket.service > /dev/null 2>&1 || true
@@ -108,6 +108,7 @@ fi
 if [ -f "menu.sh" ]; then
     cp -f menu.sh /opt/mpro/menu
     chmod +x /opt/mpro/menu
+    ln -sf /opt/mpro/menu "/usr/local/bin/${CMD_NAME}"
     ln -sf /opt/mpro/menu /usr/local/bin/wspro
     ln -sf /opt/mpro/menu /usr/local/bin/mpro
 fi
@@ -123,5 +124,5 @@ rm -rf /tmp/Mpro_build
 
 # --- Etapa 7 ---
 log_success "Instalação concluída com sucesso!"
-echo -e "Use o comando ${YELLOW}wspro${NC} para abrir o menu."
+echo -e "Use o comando ${YELLOW}${CMD_NAME}${NC} para abrir o menu."
 echo -e "--------------------------------------------------------------"

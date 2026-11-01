@@ -32,7 +32,8 @@ chmod +x install.sh
 ## Uso
 
 ```bash
-wspro   # Menu interativo (comando curto)
+wzpro   # Menu interativo (comando principal)
+wspro   # Alias de compatibilidade
 mpro    # Menu interativo (compatibilidade)
 ```
 
