@@ -172,7 +172,7 @@ open_port() {
     fi
     read -p "Habilitar o HTTPS? (s/n): " HTTPS
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Mpro"
+    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
     read -p "Habilitar somente SSH? (s/n): " SSH_ONLY
     mkdir -p /opt/mpro
     create_service "$PORT" "$HTTPS" "$STATUS" "$SSH_ONLY"
@@ -192,7 +192,7 @@ open_xhttp() {
     box_bottom
     echo ""
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Mpro"
+    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
     read -p "Porta SSH backend (Padrão: 22): " SSH_PORT
     [[ -z "$SSH_PORT" ]] && SSH_PORT="22"
     mkdir -p /opt/mpro
@@ -249,7 +249,7 @@ open_integrated() {
         QUIC_ARG="--quic --quic-port $QPORT"
     fi
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Mpro"
+    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
     mkdir -p /opt/mpro
     if [ ! -f "/opt/mpro/cert.pem" ]; then
         openssl req -x509 -newkey rsa:2048 -keyout /opt/mpro/key.pem -out /opt/mpro/cert.pem -days 365 -nodes -subj "/CN=mpro" 2>/dev/null
@@ -677,7 +677,7 @@ show_menu() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}WZPRO Menu Free v2.3${NC}"
+    box_line "${WHITE}${BOLD}WZPRO PROXY Free V12.${NC}"
     box_mid
     show_active_ports
     box_mid
