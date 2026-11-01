@@ -1,4 +1,5 @@
 mod protocol;
+mod relay;
 mod security;
 mod socks5;
 mod ssh;
@@ -63,6 +64,7 @@ async fn start_http(
     loop {
         match listener.accept().await {
             Ok((client_stream, addr)) => {
+                let _ = client_stream.set_nodelay(true);
                 let status = status_arc.clone();
                 tokio::spawn(async move {
                     let result = if global_multiprotocol {
@@ -149,7 +151,7 @@ async fn relay_to_backend(mut client_stream: TcpStream, addr: &str) -> Result<()
         .await
         .map_err(|_| Error::new(std::io::ErrorKind::TimedOut, "timeout conectando backend"))??;
     server_stream.set_nodelay(true)?;
-    let _ = tokio::io::copy_bidirectional(&mut client_stream, &mut server_stream).await;
+    let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
     Ok(())
 }
 

@@ -56,6 +56,6 @@ pub async fn handle_security(mut socket: TcpStream, status: &str) -> Result<()> 
 
     // O preâmbulo é controle do handshake SECURITY, como no handler histórico;
     // somente os dados subsequentes entram no túnel.
-    let _ = tokio::io::copy_bidirectional(&mut socket, &mut backend).await?;
+    let _ = crate::relay::copy_bidirectional(&mut socket, &mut backend).await?;
     Ok(())
 }

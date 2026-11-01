@@ -8,10 +8,12 @@ use log::info;
 /// Handle TLS connections - passthrough to backend
 pub async fn handle_tls(socket: TcpStream) -> Result<()> {
     info!("🛡️ TLS detected - passthrough to backend...");
+    socket.set_nodelay(true)?;
 
     // Tentar SSH primeiro (Porta 22)
     match TcpStream::connect("127.0.0.1:22").await {
         Ok(remote) => {
+            remote.set_nodelay(true)?;
             info!("✅ TLS -> SSH:22 connected");
             let (cr, cw) = socket.into_split();
             let (sr, sw) = remote.into_split();
@@ -26,6 +28,7 @@ pub async fn handle_tls(socket: TcpStream) -> Result<()> {
             // Se SSH falhar, tentar VPN (Porta 1194)
             match TcpStream::connect("127.0.0.1:1194").await {
                 Ok(remote) => {
+                    remote.set_nodelay(true)?;
                     info!("✅ TLS -> VPN:1194 connected");
                     let (cr, cw) = socket.into_split();
                     let (sr, sw) = remote.into_split();
@@ -49,7 +52,7 @@ async fn transfer_data(
     read_stream: Arc<Mutex<tokio::net::tcp::OwnedReadHalf>>,
     write_stream: Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>,
 ) -> Result<()> {
-    let mut buffer = [0; 8192];
+    let mut buffer = [0; 32768];
     loop {
         let bytes_read = {
             let mut read_guard = read_stream.lock().await;

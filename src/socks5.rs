@@ -83,7 +83,7 @@ pub async fn handle_socks5(mut client: TcpStream) -> Result<()> {
     remote.set_nodelay(true)?;
     send_reply(&mut client, 0x00).await?;
     info!("SOCKS5: tunel conectado ao SSH local na porta 22");
-    let _ = tokio::io::copy_bidirectional(&mut client, &mut remote).await?;
+    let _ = crate::relay::copy_bidirectional(&mut client, &mut remote).await?;
     Ok(())
 }
 

@@ -30,7 +30,7 @@ async fn main() -> Result<(), XhttpError> {
 
     println!("[Mpro] xHTTP v3.6.0 – Latency Optimized for Low Latency Networks");
     println!("[xHTTP] Porta: {} | SSH Backend: 127.0.0.1:{}", port, ssh_port);
-    println!("[xHTTP] Keep-Alive: timeout=30 max=100 | Canal GET/POST: 16384");
+    println!("[xHTTP] Keep-Alive: timeout=30 max=100 | Canal GET/POST: 64 blocos");
     println!("[xHTTP] TCP_QUICKACK | Peek=200ms | TLS read=1.5s | SSH connect=3s");
 
     let listener = TcpListener::bind(format!("[::]:{}", port)).await.map_err(|e| Box::new(e) as XhttpError)?;
@@ -226,9 +226,9 @@ async fn handle_xhttp_get_tls(tls: &mut tokio_rustls::server::TlsStream<TcpStrea
     // Fator 3: SSH connect timeout reduzido para 3s
     let ssh = timeout(Duration::from_secs(3), TcpStream::connect(format!("127.0.0.1:{}", ssh_port))).await.map_err(|_| Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "SSH Connect Timeout")) as XhttpError)?.map_err(|e| Box::new(e) as XhttpError)?;
     let (mut sr, mut sw) = ssh.into_split();
-    // Fator 1: Canal GET/POST ampliado para 16384
-    let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(16384); 
-    let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(16384); 
+    // Filas limitadas: aplicam contrapressao e evitam acumulo excessivo de latencia.
+    let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(64);
+    let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(64);
     let act = Arc::new(RwLock::new(true));
     
     SESSIONS.lock().await.insert(sid.clone(), XhttpSession { post_tx: ptx, get_tx: gtx.clone(), active: act.clone() });
@@ -300,9 +300,9 @@ async fn handle_xhttp_get_raw(stream: &mut TcpStream, path: &str, status: &str, 
     // Fator 3: SSH connect timeout reduzido para 3s
     let ssh = timeout(Duration::from_secs(3), TcpStream::connect(format!("127.0.0.1:{}", ssh_port))).await.map_err(|_| Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "SSH Connect Timeout")) as XhttpError)?.map_err(|e| Box::new(e) as XhttpError)?;
     let (mut sr, mut sw) = ssh.into_split();
-    // Fator 1: Canal GET/POST ampliado para 16384
-    let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(16384);
-    let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(16384);
+    // Filas limitadas: aplicam contrapressao e evitam acumulo excessivo de latencia.
+    let (ptx, mut prx) = mpsc::channel::<Vec<u8>>(64);
+    let (gtx, mut grx) = mpsc::channel::<Vec<u8>>(64);
     let act = Arc::new(RwLock::new(true));
 
     SESSIONS.lock().await.insert(sid.clone(), XhttpSession { post_tx: ptx, get_tx: gtx.clone(), active: act.clone() });
