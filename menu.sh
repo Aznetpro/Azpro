@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================
-# WSPRO Menu - Free v5
+# WZPRO Menu - Free v5
 # ============================================
 
 LKPROXY="/opt/mpro/proxy"
@@ -424,7 +424,7 @@ close_port() {
         box_line "${WHITE}${BOLD}Fechar porta aberta${NC}"
         box_mid
         if ((${#ACTIVE_SERVICES[@]} == 0)); then
-            box_line "${YELLOW}Nenhum serviço WSPRO ativo.${NC}"
+            box_line "${YELLOW}Nenhum serviço WZPRO ativo.${NC}"
         else
             for ((INDEX=0; INDEX<${#ACTIVE_SERVICES[@]}; INDEX++)); do
                 printf -v CHOICE '%02d' "$((INDEX + 1))"
@@ -504,7 +504,7 @@ update_from_github() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}Atualizar WSPRO pelo GitHub${NC}"
+    box_line "${WHITE}${BOLD}Atualizar WZPRO pelo GitHub${NC}"
     box_mid
     box_line "A atualização recompila os binários."
     box_line "Os serviços podem reiniciar durante o processo."
@@ -575,7 +575,7 @@ uninstall_proxy() {
     show_banner
     echo ""
     box_top
-    box_line "${RED}${BOLD}DESINSTALAR WSPRO${NC}"
+    box_line "${RED}${BOLD}DESINSTALAR WZPRO${NC}"
     box_mid
     box_line "Para os serviços do proxy e remove os binários."
     box_line "Também remove os certificados TLS em /opt/mpro."
@@ -666,7 +666,7 @@ uninstall_proxy() {
     fi
     rmdir /opt/mpro 2>/dev/null || true
 
-    echo -e "${GREEN}WSPRO desinstalado. SSH e dependências do sistema foram preservados.${NC}"
+    echo -e "${GREEN}WZPRO desinstalado. SSH e dependências do sistema foram preservados.${NC}"
     echo -e "${YELLOW}Arquivos não reconhecidos em /opt/mpro, se houver, foram preservados.${NC}"
     sleep 3
     exit 0
@@ -677,7 +677,7 @@ show_menu() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}WSPRO Menu Free v2.3${NC}"
+    box_line "${WHITE}${BOLD}WZPRO Menu Free v2.3${NC}"
     box_mid
     show_active_ports
     box_mid

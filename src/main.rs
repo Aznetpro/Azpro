@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
     let ssh_only = has_arg("-ssh");
     let quic_port = get_quic_port();
 
-    println!("[WSPRO] Multi-protocolo v2.5.0");
+    println!("[WZPRO] Multi-protocolo v2.5.0");
     println!("[TCP] Porta: {}", port);
     if global_multiprotocol {
         println!("[TCP] Dispatcher global ativo: SOCKS5/TLS/HTTP/WebSocket/Security/SSH");

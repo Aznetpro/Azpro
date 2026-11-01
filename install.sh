@@ -42,7 +42,7 @@ fi
 clear
 echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
-log_info "Iniciando instalação do WSPRO v3.1.0 (🇧🇷)..."
+log_info "Iniciando instalação do WZPRO v3.1.0 (🇧🇷)..."
 
 # --- Etapa 1 ---
 show_progress "Atualizando dependências..."
