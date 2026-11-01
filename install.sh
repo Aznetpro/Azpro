@@ -7,6 +7,20 @@ CMD_NAME="wzpro"
 TOTAL_STEPS=7
 
 CURRENT_STEP=0
+BUILD_DIR="/tmp/Mpro_build"
+CARGO_TARGET_DIR="/var/cache/wzpro/cargo-target"
+CPU_COUNT="$(nproc 2>/dev/null || echo 2)"
+MEMORY_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 2048)"
+if [ "$MEMORY_MB" -lt 2500 ]; then
+    BUILD_JOBS=1
+elif [ "$MEMORY_MB" -lt 5000 ]; then
+    BUILD_JOBS=2
+else
+    BUILD_JOBS="$CPU_COUNT"
+    [ "$BUILD_JOBS" -gt 4 ] && BUILD_JOBS=4
+fi
+ACTIVE_WZPRO_SERVICES=()
+SERVICES_STOPPED=0
 
 # --- Cores e Estilos ---
 GREEN="\033[0;32m"
@@ -28,6 +42,16 @@ log_error() {
     exit 1
 }
 
+restore_active_services() {
+    if [ "$SERVICES_STOPPED" -eq 1 ]; then
+        for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+            systemctl start "$SERVICE" >/dev/null 2>&1 || echo "[AVISO] Não foi possível restaurar ${SERVICE}."
+        done
+        SERVICES_STOPPED=0
+    fi
+}
+trap restore_active_services EXIT
+
 show_progress() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
     PERCENT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
@@ -39,15 +63,35 @@ if [ "$EUID" -ne 0 ]; then
     log_error "Este script precisa ser executado como ROOT."
 fi
 
+# Memoriza somente serviços WZPRO ativos para restaurá-los depois da troca dos binários.
+for SERVICE_FILE in /etc/systemd/system/proxy-*.service; do
+    [ -f "$SERVICE_FILE" ] || continue
+    if grep -Eq '^[[:space:]]*ExecStart=.*/opt/mpro/(proxy|proxy-xhttp|proxy-integrated)([[:space:]]|$)' "$SERVICE_FILE"; then
+        SERVICE_NAME=$(basename "$SERVICE_FILE")
+        if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+            ACTIVE_WZPRO_SERVICES+=("$SERVICE_NAME")
+        fi
+    fi
+done
+
 clear
 echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 log_info "Iniciando instalação do WZPRO v3.1.0 (🇧🇷)..."
 
 # --- Etapa 1 ---
-show_progress "Atualizando dependências..."
-apt update -y > /dev/null 2>&1
-apt install -y curl build-essential git libssl-dev pkg-config openssl > /dev/null 2>&1
+show_progress "Verificando dependências..."
+REQUIRED_PACKAGES=(curl build-essential git libssl-dev pkg-config openssl)
+MISSING_PACKAGES=()
+for PACKAGE in "${REQUIRED_PACKAGES[@]}"; do
+    if [ "$(dpkg-query -W -f='${db:Status-Status}' "$PACKAGE" 2>/dev/null || true)" != "installed" ]; then
+        MISSING_PACKAGES+=("$PACKAGE")
+    fi
+done
+if ((${#MISSING_PACKAGES[@]} > 0)); then
+    apt-get update -y > /dev/null 2>&1 || log_error "Falha ao atualizar a lista de pacotes."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${MISSING_PACKAGES[@]}" > /dev/null 2>&1 || log_error "Falha ao instalar dependências."
+fi
 
 # --- Etapa 2 ---
 show_progress "Verificando Rust..."
@@ -60,13 +104,14 @@ fi
 
 # --- Etapa 3 ---
 show_progress "Baixando código fonte..."
-rm -rf /tmp/Mpro_build
-git clone --branch "$REPO_BRANCH" "$REPO_URL" /tmp/Mpro_build > /dev/null 2>&1 || log_error "Falha ao clonar repositório."
-cd /tmp/Mpro_build || log_error "Falha ao acessar diretório."
+rm -rf "$BUILD_DIR"
+git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$BUILD_DIR" > /dev/null 2>&1 || log_error "Falha ao clonar repositório."
+cd "$BUILD_DIR" || log_error "Falha ao acessar diretório."
 
 # --- Etapa 4 ---
-show_progress "Compilando (2-5 min)..."
-cargo build --release > /tmp/mpro_build.log 2>&1
+show_progress "Compilando com cache e ${BUILD_JOBS} núcleos..."
+mkdir -p "$CARGO_TARGET_DIR" || log_error "Falha ao criar cache de compilação."
+CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --release --bins --jobs "$BUILD_JOBS" > /tmp/mpro_build.log 2>&1
 if [ $? -ne 0 ]; then
     cat /tmp/mpro_build.log
     log_error "Falha na compilação. Veja logs acima."
@@ -76,8 +121,12 @@ fi
 show_progress "Instalando binários..."
 mkdir -p /opt/mpro
 
-# Parar somente os binários do proxy; não encerrar o menu wzpro que iniciou
-# esta atualização.
+# Para somente os serviços WZPRO que estavam ativos; o menu wzpro continua
+# executando durante a atualização.
+SERVICES_STOPPED=1
+for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+    systemctl stop "$SERVICE" || log_error "Não foi possível parar ${SERVICE}; binários não foram trocados."
+done
 systemctl stop proxy-websocket.service > /dev/null 2>&1 || true
 systemctl disable proxy-websocket.service > /dev/null 2>&1 || true
 pkill -f '^/opt/mpro/proxy-websocket([[:space:]]|$)' > /dev/null 2>&1 || true
@@ -89,20 +138,26 @@ pkill -f '^/opt/mpro/proxy-integrated([[:space:]]|$)' > /dev/null 2>&1 || true
 sleep 1
 
 # Copiar com força (-f)
-cp -f ./target/release/mpro /opt/mpro/proxy || log_error "Falha ao copiar mpro. Verifique se o disco está cheio."
+cp -f "$CARGO_TARGET_DIR/release/mpro" /opt/mpro/proxy || log_error "Falha ao copiar mpro. Verifique se o disco está cheio."
 chmod +x /opt/mpro/proxy
 
-if [ -f ./target/release/mpro-xhttp ]; then
-    cp -f ./target/release/mpro-xhttp /opt/mpro/proxy-xhttp
+if [ -f "$CARGO_TARGET_DIR/release/mpro-xhttp" ]; then
+    cp -f "$CARGO_TARGET_DIR/release/mpro-xhttp" /opt/mpro/proxy-xhttp
     chmod +x /opt/mpro/proxy-xhttp
     ln -sf /opt/mpro/proxy-xhttp /usr/local/bin/mpro-xhttp
 fi
 
-if [ -f ./target/release/mpro-integrated ]; then
-    cp -f ./target/release/mpro-integrated /opt/mpro/proxy-integrated
+if [ -f "$CARGO_TARGET_DIR/release/mpro-integrated" ]; then
+    cp -f "$CARGO_TARGET_DIR/release/mpro-integrated" /opt/mpro/proxy-integrated
     chmod +x /opt/mpro/proxy-integrated
     ln -sf /opt/mpro/proxy-integrated /usr/local/bin/mpro-integrated
 fi
+
+# Retoma apenas serviços que estavam ativos antes da atualização.
+for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+    systemctl start "$SERVICE" || log_error "Binários atualizados, mas falhou ao reiniciar ${SERVICE}. Verifique com: systemctl status ${SERVICE}"
+done
+SERVICES_STOPPED=0
 
 # Menu
 if [ -f "menu.sh" ]; then

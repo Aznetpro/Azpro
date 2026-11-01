@@ -342,11 +342,6 @@ manage_multi_protocol() {
         else
             box_line "Estado: ${YELLOW}DESATIVADO${NC}"
         fi
-        box_line "Aplica-se às portas numéricas da opção [01]."
-        box_line "Detecta payload: SOCKS5, TLS, HTTP/WS, Security, SSH."
-        box_line "HTTP: 101/200; WebSocket: 101 RFC; SOCKS: próprio."
-        box_line "SOCKS5 sem auth: somente SSH local na porta 22."
-        box_line "Ativar/desativar reinicia portas ativas."
         box_mid
         box_line "${WHITE}[01]${NC} - ATIVAR GLOBALMENTE"
         box_line "${YELLOW}[02]${NC} - DESATIVAR E USAR CONFIG. POR PORTA"
@@ -664,6 +659,8 @@ uninstall_proxy() {
         read -r -p "Enter para voltar..." _
         return 1
     fi
+    rm -rf -- "/var/cache/wzpro/cargo-target"
+    rmdir /var/cache/wzpro 2>/dev/null || true
     rmdir /opt/mpro 2>/dev/null || true
 
     echo -e "${GREEN}WZPRO desinstalado. SSH e dependências do sistema foram preservados.${NC}"
