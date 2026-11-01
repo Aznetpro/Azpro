@@ -108,9 +108,17 @@ fi
 if [ -f "menu.sh" ]; then
     cp -f menu.sh /opt/mpro/menu
     chmod +x /opt/mpro/menu
-    ln -sf /opt/mpro/menu "/usr/local/bin/${CMD_NAME}"
-    ln -sf /opt/mpro/menu /usr/local/bin/wspro
-    ln -sf /opt/mpro/menu /usr/local/bin/mpro
+    MENU_COMMAND="/usr/local/bin/${CMD_NAME}"
+    if { [ -e "$MENU_COMMAND" ] || [ -L "$MENU_COMMAND" ]; } && \
+        { [ ! -L "$MENU_COMMAND" ] || [ "$(readlink -- "$MENU_COMMAND")" != "/opt/mpro/menu" ]; }; then
+        log_error "Já existe outro comando em ${MENU_COMMAND}; ele não foi sobrescrito."
+    fi
+    ln -sfn /opt/mpro/menu "$MENU_COMMAND"
+    for LEGACY_COMMAND in /usr/local/bin/wspro /usr/local/bin/mpro; do
+        if [ -L "$LEGACY_COMMAND" ] && [ "$(readlink -- "$LEGACY_COMMAND")" = "/opt/mpro/menu" ]; then
+            rm -f -- "$LEGACY_COMMAND"
+        fi
+    done
 fi
 
 # Certificados

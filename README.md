@@ -32,9 +32,7 @@ chmod +x install.sh
 ## Uso
 
 ```bash
-wzpro   # Menu interativo (comando principal)
-wspro   # Alias de compatibilidade
-mpro    # Menu interativo (compatibilidade)
+wzpro   # Único comando para abrir o menu deste proxy
 ```
 
 No menu, escolha **[06] ATUALIZAR PELO GITHUB** para baixar a versão mais recente do branch `main`, recompilar os binários e atualizar o menu. A operação pede confirmação e pode reiniciar os serviços ativos.
