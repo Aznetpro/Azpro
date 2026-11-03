@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::io;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout, Duration};
@@ -39,14 +40,15 @@ pub fn detect_protocol(data: &[u8]) -> Option<Protocol> {
 
     if is_http_method_prefix(data) {
         let request = String::from_utf8_lossy(data);
-        let lower = request.to_ascii_lowercase();
-        if !lower.contains("\r\n\r\n") {
+        let Some(header_end) = request.find("\r\n\r\n") else {
             return None;
-        }
+        };
+        let headers = &request[..header_end];
+        let lower = headers.to_ascii_lowercase();
         if lower.contains("upgrade: security") || lower.contains("x-protocol: security") {
             return Some(Protocol::Security);
         }
-        if lower.contains("upgrade: websocket") {
+        if is_valid_websocket_upgrade(headers) {
             return Some(Protocol::WebSocket);
         }
         return Some(Protocol::Http);
@@ -131,6 +133,45 @@ fn is_http_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
+fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+    headers.lines().skip(1).find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.trim().eq_ignore_ascii_case(name).then(|| value.trim())
+    })
+}
+
+fn header_has_token(headers: &str, name: &str, token: &str) -> bool {
+    headers.lines().skip(1).any(|line| {
+        let Some((key, value)) = line.split_once(':') else {
+            return false;
+        };
+        key.trim().eq_ignore_ascii_case(name)
+            && value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+    })
+}
+
+fn is_valid_websocket_upgrade(headers: &str) -> bool {
+    let mut lines = headers.lines();
+    let Some(start_line) = lines.next() else {
+        return false;
+    };
+    let fields: Vec<_> = start_line.split_ascii_whitespace().collect();
+    if fields.len() != 3 || fields[0] != "GET" || fields[2] != "HTTP/1.1" {
+        return false;
+    }
+    if !header_has_token(headers, "Upgrade", "websocket")
+        || !header_has_token(headers, "Connection", "upgrade")
+        || header_value(headers, "Sec-WebSocket-Version") != Some("13")
+    {
+        return false;
+    }
+    header_value(headers, "Sec-WebSocket-Key")
+        .and_then(|key| STANDARD.decode(key).ok())
+        .is_some_and(|decoded| decoded.len() == 16)
+}
+
 fn may_be_incomplete_known_prefix(data: &[u8]) -> bool {
     const PREFIXES: [&[u8]; 13] = [
         b"SSH-",
@@ -174,13 +215,21 @@ mod tests {
 
     #[test]
     fn distinguishes_websocket_security_and_http_after_complete_headers() {
-        let websocket =
-            b"GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: keep-alive, Upgrade\r\n\r\n";
+        let websocket = b"GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: keep-alive, Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
         let security = b"GET / HTTP/1.1\r\nUpgrade: security\r\nConnection: Upgrade\r\n\r\n";
         let http = b"CONNECT host:22 HTTP/1.1\r\nHost: host:22\r\n\r\n";
         assert_eq!(detect_protocol(websocket), Some(Protocol::WebSocket));
         assert_eq!(detect_protocol(security), Some(Protocol::Security));
         assert_eq!(detect_protocol(http), Some(Protocol::Http));
+    }
+
+    #[test]
+    fn only_first_http_header_block_controls_dispatch() {
+        let pipelined = b"GET / HTTP/1.1\r\nHost: example\r\n\r\nGET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+        let incomplete_upgrade =
+            b"GET / HTTP/1.1\r\nHost: example\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
+        assert_eq!(detect_protocol(pipelined), Some(Protocol::Http));
+        assert_eq!(detect_protocol(incomplete_upgrade), Some(Protocol::Http));
     }
 
     #[test]

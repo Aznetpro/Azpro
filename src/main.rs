@@ -68,7 +68,7 @@ async fn start_http(
                 let status = status_arc.clone();
                 tokio::spawn(async move {
                     let result = if multiprotocol_enabled {
-                        handle_multiprotocol_client(client_stream, &status).await
+                        handle_multiprotocol_client(client_stream, &status, ssh_only).await
                     } else {
                         handle_client(client_stream, &status, ssh_only).await
                     };
@@ -97,7 +97,11 @@ fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
 
 /// Despacha cada conexão da opção 01 sem consumir o prefixo usado para detectá-la.
 /// Cada protocolo recebe exclusivamente seu handshake próprio.
-async fn handle_multiprotocol_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
+async fn handle_multiprotocol_client(
+    client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
+) -> Result<(), Error> {
     let detected = protocol::detect_from_stream(&client_stream).await?;
     println!("[MULTI] Protocolo detectado: {:?}", detected);
 
@@ -114,7 +118,7 @@ async fn handle_multiprotocol_client(client_stream: TcpStream, status: &str) -> 
         protocol::Protocol::Security => security::handle_security(client_stream, status)
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Http => handle_client(client_stream, status, false).await,
+        protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
         protocol::Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
