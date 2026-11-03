@@ -7,7 +7,8 @@
 LKPROXY="/opt/mpro/proxy"
 LKPROXY_XHTTP="/opt/mpro/proxy-xhttp"
 LKPROXY_INTEGRATED="/opt/mpro/proxy-integrated"
-MULTIPROTOCOL_FLAG="/opt/mpro/multiprotocol.enabled"
+MULTIPROTOCOL_DIR="/opt/mpro"
+MULTIPROTOCOL_FLAG="${MULTIPROTOCOL_DIR}/multiprotocol.enabled"
 SYSTEMD_DIR="/etc/systemd/system"
 
 # Cores
@@ -64,6 +65,15 @@ echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 }
 
+has_any_multiprotocol_enabled() {
+    [[ -f "$MULTIPROTOCOL_FLAG" ]] && return 0
+    local FLAG
+    for FLAG in "${MULTIPROTOCOL_DIR}"/multiprotocol-*.enabled; do
+        [[ -f "$FLAG" ]] && return 0
+    done
+    return 1
+}
+
 show_active_ports() {
     ACTIVE=""
     XHTTP_ACTIVE=false
@@ -99,7 +109,7 @@ show_active_ports() {
     fi
 
     box_line "${YELLOW}Porta(s) ativa(s):${NC} ${ports_str}"
-    if [[ -f "$MULTIPROTOCOL_FLAG" ]]; then
+    if has_any_multiprotocol_enabled; then
         box_line "${CYAN}Multiprotocolo + status: ATIVO${NC}"
     else
         box_line "${YELLOW}Multiprotocolo + status: DESATIVADO${NC}"
@@ -276,87 +286,164 @@ EOF
     read -p "Pressione Enter para continuar..."
 }
 
-apply_global_multiprotocol() {
-    local ENABLE="$1"
-    local CONFIRM=""
-    local SERVICE_FILE SERVICE NAME RESTARTED=0 FAILED=0
+multi_protocol_flag_for_port() {
+    printf '%s/multiprotocol-%s.enabled' "$MULTIPROTOCOL_DIR" "$1"
+}
 
-    read -r -p "As portas ativas serão reiniciadas e as conexões cairão. Continuar? (s/N): " CONFIRM
+is_managed_numeric_port_service() {
+    local SERVICE_FILE="$1"
+    local SERVICE_NAME PORT
+    SERVICE_NAME=$(basename "$SERVICE_FILE")
+    PORT=${SERVICE_NAME#proxy-}
+    PORT=${PORT%.service}
+    [[ "$PORT" =~ ^[0-9]+$ ]] || return 1
+    grep -Fq "ExecStart=${LKPROXY} " "$SERVICE_FILE"
+}
+
+toggle_port_multiprotocol() {
+    local PORT="$1" SERVICE="proxy-${1}.service" FLAG CONFIRM=""
+    local LEGACY_GLOBAL=false SERVICE_FILE OTHER_SERVICE OTHER_PORT OTHER_FLAG
+    local RESTARTED=0 FAILED=0 PREVIOUS=false
+    FLAG=$(multi_protocol_flag_for_port "$PORT")
+    systemctl is-active --quiet "$SERVICE" 2>/dev/null || {
+        echo -e "${RED}A porta ${PORT} não está mais ativa.${NC}"
+        read -r -p "Enter para continuar..." _
+        return 1
+    }
+
+    if [[ -f "$MULTIPROTOCOL_FLAG" ]]; then
+        LEGACY_GLOBAL=true
+        read -r -p "O modo antigo está global. Esta seleção migra o estado por porta e reinicia as portas WZPRO ativas. Continuar? (s/N): " CONFIRM
+    else
+        read -r -p "A porta ${PORT} será reiniciada e as conexões cairão. Continuar? (s/N): " CONFIRM
+    fi
     [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]] && return 0
 
-    if ! mkdir -p /opt/mpro; then
-        echo -e "${RED}Não foi possível acessar /opt/mpro.${NC}"
+    if ! mkdir -p "$MULTIPROTOCOL_DIR"; then
+        echo -e "${RED}Não foi possível acessar ${MULTIPROTOCOL_DIR}.${NC}"
         read -r -p "Enter para continuar..." _
         return 1
     fi
-    if [[ "$ENABLE" == "yes" ]]; then
-        if ! touch "$MULTIPROTOCOL_FLAG"; then
-            echo -e "${RED}Não foi possível ativar o multiprotocolo global.${NC}"
-            read -r -p "Enter para continuar..." _
-            return 1
-        fi
-    else
-        if ! rm -f "$MULTIPROTOCOL_FLAG"; then
-            echo -e "${RED}Não foi possível desativar o multiprotocolo global.${NC}"
-            read -r -p "Enter para continuar..." _
-            return 1
-        fi
-    fi
 
-    for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
-        [[ -f "$SERVICE_FILE" ]] || continue
-        SERVICE=$(basename "$SERVICE_FILE")
-        NAME=${SERVICE#proxy-}
-        NAME=${NAME%.service}
-        [[ "$NAME" =~ ^[0-9]+$ ]] || continue
-        grep -Fq "ExecStart=${LKPROXY} " "$SERVICE_FILE" || continue
-        systemctl is-active --quiet "$SERVICE" 2>/dev/null || continue
+    if [[ "$LEGACY_GLOBAL" == true ]]; then
+        # O modo global antigo mantinha todas as portas em multiprotocolo.
+        # Migra essa configuração para cada serviço, exceto a porta selecionada
+        # (que será desligada), e reinicia as portas ativas uma única vez.
+        for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+            [[ -f "$SERVICE_FILE" ]] || continue
+            is_managed_numeric_port_service "$SERVICE_FILE" || continue
+            OTHER_SERVICE=$(basename "$SERVICE_FILE")
+            OTHER_PORT=${OTHER_SERVICE#proxy-}
+            OTHER_PORT=${OTHER_PORT%.service}
+            OTHER_FLAG=$(multi_protocol_flag_for_port "$OTHER_PORT")
+            if [[ "$OTHER_PORT" == "$PORT" ]]; then
+                rm -f -- "$OTHER_FLAG" || return 1
+            else
+                touch "$OTHER_FLAG" || {
+                    echo -e "${RED}Falha ao migrar a configuração da porta ${OTHER_PORT}.${NC}"
+                    read -r -p "Enter para continuar..." _
+                    return 1
+                }
+            fi
+        done
+        rm -f -- "$MULTIPROTOCOL_FLAG" || {
+            echo -e "${RED}Falha ao concluir a migração do modo global.${NC}"
+            read -r -p "Enter para continuar..." _
+            return 1
+        }
+        for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+            [[ -f "$SERVICE_FILE" ]] || continue
+            is_managed_numeric_port_service "$SERVICE_FILE" || continue
+            SERVICE=$(basename "$SERVICE_FILE")
+            systemctl is-active --quiet "$SERVICE" 2>/dev/null || continue
+            if systemctl restart "$SERVICE" 2>/dev/null; then
+                RESTARTED=$((RESTARTED + 1))
+            else
+                FAILED=$((FAILED + 1))
+            fi
+        done
+        echo -e "${GREEN}Porta ${PORT}: multiprotocolo DESATIVADO.${NC}"
+        echo -e "Migração concluída. Reiniciadas: ${RESTARTED}; falhas: ${FAILED}."
+    else
+        if [[ -f "$FLAG" ]]; then
+            PREVIOUS=true
+            rm -f -- "$FLAG" || return 1
+        else
+            touch "$FLAG" || {
+                echo -e "${RED}Não foi possível ativar o multiprotocolo na porta ${PORT}.${NC}"
+                read -r -p "Enter para continuar..." _
+                return 1
+            }
+        fi
 
         if systemctl restart "$SERVICE" 2>/dev/null; then
-            RESTARTED=$((RESTARTED + 1))
+            if [[ "$PREVIOUS" == true ]]; then
+                echo -e "${YELLOW}Multiprotocolo + multi-status DESATIVADO na porta ${PORT}.${NC}"
+            else
+                echo -e "${GREEN}Multiprotocolo + multi-status ATIVADO na porta ${PORT}.${NC}"
+            fi
         else
-            FAILED=$((FAILED + 1))
+            if [[ "$PREVIOUS" == true ]]; then
+                touch "$FLAG"
+            else
+                rm -f -- "$FLAG"
+            fi
+            systemctl restart "$SERVICE" >/dev/null 2>&1 || true
+            echo -e "${RED}Falha ao reiniciar ${SERVICE}; configuração anterior restaurada.${NC}"
         fi
-    done
-
-    if [[ "$ENABLE" == "yes" ]]; then
-        echo -e "${GREEN}Multiprotocolo + multi-status ATIVADO nas portas ativas da opção 01.${NC}"
-    else
-        echo -e "${YELLOW}Força global removida; cada porta volta à configuração individual.${NC}"
     fi
-    echo -e "Portas reiniciadas: ${RESTARTED}; falhas: ${FAILED}."
     read -r -p "Enter para continuar..." _
 }
 
 manage_multi_protocol() {
-    local ACTION
+    local ACTION SERVICE_FILE SERVICE_NAME PORT FLAG INDEX
+    local -a ACTIVE_PORTS=()
     while true; do
+        ACTIVE_PORTS=()
+        for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+            [[ -f "$SERVICE_FILE" ]] || continue
+            is_managed_numeric_port_service "$SERVICE_FILE" || continue
+            SERVICE_NAME=$(basename "$SERVICE_FILE")
+            systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null || continue
+            PORT=${SERVICE_NAME#proxy-}
+            PORT=${PORT%.service}
+            ACTIVE_PORTS+=("$PORT")
+        done
+        if ((${#ACTIVE_PORTS[@]} > 0)); then
+            mapfile -t ACTIVE_PORTS < <(printf '%s\n' "${ACTIVE_PORTS[@]}" | sort -n)
+        fi
+
         clear
         show_banner
         echo ""
         box_top
         box_line "${WHITE}${BOLD}MULTIPROTOCOLO + MULTI-STATUS${NC}"
         box_mid
-        if [[ -f "$MULTIPROTOCOL_FLAG" ]]; then
-            box_line "Estado: ${GREEN}ATIVO${NC}"
+        if ((${#ACTIVE_PORTS[@]} == 0)); then
+            box_line "${YELLOW}Nenhuma porta WZPRO ativa.${NC}"
         else
-            box_line "Estado: ${YELLOW}DESATIVADO${NC}"
+            for ((INDEX=0; INDEX<${#ACTIVE_PORTS[@]}; INDEX++)); do
+                PORT=${ACTIVE_PORTS[$INDEX]}
+                FLAG=$(multi_protocol_flag_for_port "$PORT")
+                printf -v ACTION '%02d' "$((INDEX + 1))"
+                if [[ -f "$MULTIPROTOCOL_FLAG" || -f "$FLAG" ]]; then
+                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - ${GREEN}ATIVO${NC}"
+                else
+                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - ${YELLOW}DESATIVADO${NC}"
+                fi
+            done
         fi
-        box_mid
-        box_line "${WHITE}[01]${NC} - ATIVAR GLOBALMENTE"
-        box_line "${YELLOW}[02]${NC} - DESATIVAR E USAR CONFIG. POR PORTA"
         box_mid
         box_line "${WHITE}[00]${NC} - VOLTAR"
         box_bottom
         echo ""
-        read -r -p "Escolha uma opção: " ACTION
+        read -r -p "Selecione a porta: " ACTION
+        [[ "$ACTION" == "00" || "$ACTION" == "0" || -z "$ACTION" ]] && return
 
-        case "$ACTION" in
-            01|1) apply_global_multiprotocol yes ;;
-            02|2) apply_global_multiprotocol no ;;
-            00|0|"") return ;;
-            *) ;;
-        esac
+        if [[ "$ACTION" =~ ^[0-9]+$ ]] && ((10#$ACTION >= 1 && 10#$ACTION <= ${#ACTIVE_PORTS[@]})); then
+            PORT=${ACTIVE_PORTS[$((10#$ACTION - 1))]}
+            toggle_port_multiprotocol "$PORT"
+        fi
     done
 }
 
@@ -652,6 +739,7 @@ uninstall_proxy() {
     remove_owned_link "/usr/local/bin/mpro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/mpro-xhttp" "$LKPROXY_XHTTP"
     remove_owned_link "/usr/local/bin/mpro-integrated" "$LKPROXY_INTEGRATED"
+    rm -f -- "${MULTIPROTOCOL_DIR}"/multiprotocol-*.enabled
     if ! rm -f -- "$LKPROXY" "$LKPROXY_XHTTP" "$LKPROXY_INTEGRATED" \
         "/opt/mpro/proxy-websocket" "/opt/mpro/menu" "/opt/mpro/cert.pem" \
         "/opt/mpro/key.pem" "$MULTIPROTOCOL_FLAG"; then

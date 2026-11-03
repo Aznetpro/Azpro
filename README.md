@@ -148,7 +148,7 @@ ss -tlnp | grep 443
 
 ## Opção 07 — Multiprotocolo + multi-status
 
-A opção **[07] MULTIPROTOCOLO + MULTI-STATUS** liga um dispatcher por conexão em todas as portas numéricas ativas criadas pela opção **[01]**. A opção 01 e suas perguntas/configurações permanecem iguais; as opções 04 e 05 não são alteradas. Ativar ou desativar pede confirmação e reinicia os serviços ativos, encerrando conexões existentes.
+A opção **[07] MULTIPROTOCOLO + MULTI-STATUS** lista as portas numéricas WZPRO que estão ativas e mostra o estado de cada uma. Selecione uma porta para alternar o dispatcher somente nela; a porta selecionada reinicia e as conexões dessa porta caem. A opção 01 e suas perguntas/configurações permanecem iguais; as opções 04 e 05 não são alteradas. Ao encontrar a configuração global antiga, o menu migra os estados por porta preservando as demais portas e avisa que as portas WZPRO ativas serão reiniciadas uma vez.
 
 O dispatcher classifica os prefixos SOCKS5, TLS, HTTP/WebSocket, SECURITY/AUTH e SSH direto antes de encaminhar a conexão. Cada tipo recebe seu handshake próprio: HTTP usa o fluxo 101/200 configurado; WebSocket faz upgrade RFC 6455 com um único 101 válido; SOCKS5 recebe respostas binárias SOCKS5; SSH direto é encaminhado sem status HTTP. O modo SECURITY segue o marcador e o fluxo histórico do projeto, portanto precisa ser validado com o aplicativo que será usado.
 

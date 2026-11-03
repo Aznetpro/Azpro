@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{timeout, Duration};
 
-const MULTIPROTOCOL_FLAG: &str = "/opt/mpro/multiprotocol.enabled";
+const MULTIPROTOCOL_DIR: &str = "/opt/mpro";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -23,14 +23,14 @@ async fn main() -> Result<(), Error> {
     let status = get_status();
     let use_udp = has_arg("-u");
     let use_quic = has_arg("-q");
-    let global_multiprotocol = Path::new(MULTIPROTOCOL_FLAG).is_file();
+    let multiprotocol_enabled = multiprotocol_enabled_for_port(port);
     let ssh_only = has_arg("-ssh");
     let quic_port = get_quic_port();
 
     println!("[WZPRO] Multi-protocolo v2.5.0");
     println!("[TCP] Porta: {}", port);
-    if global_multiprotocol {
-        println!("[TCP] Dispatcher global ativo: SOCKS5/TLS/HTTP/WebSocket/Security/SSH");
+    if multiprotocol_enabled {
+        println!("[TCP] Multiprotocolo + multi-status ativo nesta porta");
     }
 
     if use_udp {
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Error> {
 
     let listener = TcpListener::bind(format!("[::]:{}", port)).await?;
     println!("Aguardando conexoes TCP...");
-    start_http(listener, status, ssh_only, global_multiprotocol).await;
+    start_http(listener, status, ssh_only, multiprotocol_enabled).await;
     Ok(())
 }
 
@@ -58,7 +58,7 @@ async fn start_http(
     listener: TcpListener,
     status: String,
     ssh_only: bool,
-    global_multiprotocol: bool,
+    multiprotocol_enabled: bool,
 ) {
     let status_arc = Arc::new(status);
     loop {
@@ -67,7 +67,7 @@ async fn start_http(
                 let _ = client_stream.set_nodelay(true);
                 let status = status_arc.clone();
                 tokio::spawn(async move {
-                    let result = if global_multiprotocol {
+                    let result = if multiprotocol_enabled {
                         handle_multiprotocol_client(client_stream, &status).await
                     } else {
                         handle_client(client_stream, &status, ssh_only).await
@@ -82,6 +82,17 @@ async fn start_http(
             }
         }
     }
+}
+
+fn multiprotocol_enabled_for_port(port: u16) -> bool {
+    multiprotocol_enabled_in(port, Path::new(MULTIPROTOCOL_DIR))
+}
+
+fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
+    directory.join("multiprotocol.enabled").is_file()
+        || directory
+            .join(format!("multiprotocol-{port}.enabled"))
+            .is_file()
 }
 
 /// Despacha cada conexão da opção 01 sem consumir o prefixo usado para detectá-la.
@@ -203,4 +214,28 @@ fn get_status() -> String {
 
 fn has_arg(arg: &str) -> bool {
     env::args().any(|a| a == arg)
+}
+
+#[cfg(test)]
+mod multiprotocol_tests {
+    use super::multiprotocol_enabled_in;
+    use std::path::Path;
+
+    #[test]
+    fn per_port_flag_only_enables_the_selected_port_and_global_flag_still_works() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("wzpro-multiprotocol-{unique}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("multiprotocol-80.enabled"), b"").unwrap();
+
+        assert!(multiprotocol_enabled_in(80, &directory));
+        assert!(!multiprotocol_enabled_in(443, &directory));
+
+        std::fs::write(directory.join("multiprotocol.enabled"), b"").unwrap();
+        assert!(multiprotocol_enabled_in(443, &directory));
+        std::fs::remove_dir_all(Path::new(&directory)).unwrap();
+    }
 }

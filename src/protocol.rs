@@ -101,22 +101,34 @@ pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
 }
 
 fn is_http_method_prefix(data: &[u8]) -> bool {
-    const METHODS: [&[u8]; 10] = [
-        b"GET ",
-        b"POST ",
-        b"PUT ",
-        b"DELETE ",
-        b"PATCH ",
-        b"HEAD ",
-        b"CONNECT ",
-        b"OPTIONS ",
-        b"TRACE ",
-        b"HTTP/",
-    ];
-    METHODS.iter().any(|method| {
-        data.starts_with(method)
-            || (data.len() < method.len() && method[..data.len()].eq_ignore_ascii_case(data))
-    })
+    const RESPONSE_PREFIX: &[u8] = b"HTTP/";
+    if data.len() <= RESPONSE_PREFIX.len()
+        && RESPONSE_PREFIX[..data.len()].eq_ignore_ascii_case(data)
+    {
+        return true;
+    }
+    if data.len() > RESPONSE_PREFIX.len()
+        && data[..RESPONSE_PREFIX.len()].eq_ignore_ascii_case(RESPONSE_PREFIX)
+    {
+        return true;
+    }
+
+    let method_end = data
+        .iter()
+        .position(|byte| *byte == b' ')
+        .unwrap_or(data.len());
+    let method = &data[..method_end];
+    if method.is_empty() || method.len() > 32 || !method.iter().all(|byte| is_http_token(*byte)) {
+        return false;
+    }
+
+    // Antes do espaço, pode ser um método dividido entre pacotes; depois dele,
+    // a linha continua sendo tratada como HTTP até a detecção dos headers.
+    true
+}
+
+fn is_http_token(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
 fn may_be_incomplete_known_prefix(data: &[u8]) -> bool {
@@ -174,5 +186,14 @@ mod tests {
     #[test]
     fn waits_for_partial_http_headers() {
         assert_eq!(detect_protocol(b"GET / HTTP/1.1\r\nHost: ex"), None);
+    }
+
+    #[test]
+    fn detects_extension_http_methods_but_rejects_non_token_lines() {
+        let propfind = b"PROPFIND /dav HTTP/1.1\r\nHost: example\r\n\r\n";
+        let m_search = b"M-SEARCH * HTTP/1.1\r\nHost: example\r\n\r\n";
+        assert_eq!(detect_protocol(propfind), Some(Protocol::Http));
+        assert_eq!(detect_protocol(m_search), Some(Protocol::Http));
+        assert_eq!(detect_protocol(b"?? / HTTP/1.1\r\n\r\n"), None);
     }
 }
