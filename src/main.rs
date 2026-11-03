@@ -118,7 +118,9 @@ async fn handle_multiprotocol_client(
         protocol::Protocol::Security => security::handle_security(client_stream, status)
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
+        protocol::Protocol::Http => {
+            handle_multiprotocol_http_client(client_stream, status, ssh_only).await
+        }
         protocol::Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
@@ -126,6 +128,47 @@ async fn handle_multiprotocol_client(
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
     }
+}
+
+/// Handshake HTTP customizado 101/101/200 usado somente no dispatcher multiprotocolo.
+async fn handle_multiprotocol_http_client(
+    mut client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
+) -> Result<(), Error> {
+    client_stream.set_nodelay(true)?;
+    client_stream
+        .write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+        .await?;
+    client_stream.flush().await?;
+
+    let mut buffer = [0u8; 1024];
+    let bytes_read = timeout(Duration::from_secs(5), client_stream.read(&mut buffer))
+        .await
+        .map_err(|_| Error::new(std::io::ErrorKind::TimedOut, "timeout lendo payload HTTP"))??;
+    if bytes_read == 0 {
+        return Ok(());
+    }
+
+    let followup = multiprotocol_http_followup(status);
+    client_stream.write_all(&followup).await?;
+    client_stream.flush().await?;
+
+    let addr_proxy = if ssh_only {
+        "127.0.0.1:22"
+    } else {
+        match timeout(Duration::from_millis(200), peek_stream(&client_stream)).await {
+            Ok(Ok(data)) if data.contains("SSH") || data.is_empty() => "127.0.0.1:22",
+            Ok(_) => "127.0.0.1:1194",
+            Err(_) => "127.0.0.1:22",
+        }
+    };
+    println!("[MULTI][HTTP] Backend selecionado: {}", addr_proxy);
+    relay_to_backend(client_stream, addr_proxy).await
+}
+
+fn multiprotocol_http_followup(status: &str) -> Vec<u8> {
+    format!("HTTP/1.1 101 {status}\r\n\r\nHTTP/1.1 200 {status}\r\n\r\n").into_bytes()
 }
 
 /// Caminho HTTP legado, preservado para quando o multiprotocolo global está desligado.
@@ -222,7 +265,7 @@ fn has_arg(arg: &str) -> bool {
 
 #[cfg(test)]
 mod multiprotocol_tests {
-    use super::multiprotocol_enabled_in;
+    use super::{multiprotocol_enabled_in, multiprotocol_http_followup};
     use std::path::Path;
 
     #[test]
@@ -241,5 +284,13 @@ mod multiprotocol_tests {
         std::fs::write(directory.join("multiprotocol.enabled"), b"").unwrap();
         assert!(multiprotocol_enabled_in(443, &directory));
         std::fs::remove_dir_all(Path::new(&directory)).unwrap();
+    }
+
+    #[test]
+    fn multiprotocol_http_sends_second_101_then_200_with_configured_status() {
+        assert_eq!(
+            multiprotocol_http_followup("Wzpro"),
+            b"HTTP/1.1 101 Wzpro\r\n\r\nHTTP/1.1 200 Wzpro\r\n\r\n"
+        );
     }
 }
