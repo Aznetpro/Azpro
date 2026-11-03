@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================
-# WZPRO Menu - Free v5
+# Azpro Menu - Free v5
 # ============================================
 
 LKPROXY="/opt/mpro/proxy"
@@ -61,7 +61,7 @@ box_bottom() {
 }
 
 show_banner() {
-echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
+echo -e "${CYAN}${BOLD}    A Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 }
 
@@ -181,7 +181,7 @@ open_port() {
     fi
     read -p "Habilitar o HTTPS? (s/n): " HTTPS
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
+    [[ -z "$STATUS" ]] && STATUS="@Azpro"
     read -p "Habilitar somente SSH? (s/n): " SSH_ONLY
     mkdir -p /opt/mpro
     create_service "$PORT" "$HTTPS" "$STATUS" "$SSH_ONLY"
@@ -201,7 +201,7 @@ open_xhttp() {
     box_bottom
     echo ""
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
+    [[ -z "$STATUS" ]] && STATUS="@Azpro"
     read -p "Porta SSH backend (Padrão: 22): " SSH_PORT
     [[ -z "$SSH_PORT" ]] && SSH_PORT="22"
     mkdir -p /opt/mpro
@@ -258,7 +258,7 @@ open_integrated() {
         QUIC_ARG="--quic --quic-port $QPORT"
     fi
     read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Wzpro"
+    [[ -z "$STATUS" ]] && STATUS="@Azpro"
     mkdir -p /opt/mpro
     if [ ! -f "/opt/mpro/cert.pem" ]; then
         openssl req -x509 -newkey rsa:2048 -keyout /opt/mpro/key.pem -out /opt/mpro/cert.pem -days 365 -nodes -subj "/CN=mpro" 2>/dev/null
@@ -371,7 +371,7 @@ manage_bypass() {
         box_line "${WHITE}${BOLD}BYPASS SSH_PROXY (HTTP)${NC}"
         box_mid
         if ((${#ACTIVE_PORTS[@]} == 0)); then
-            box_line "${YELLOW}Nenhuma porta WZPRO ativa.${NC}"
+            box_line "${YELLOW}Nenhuma porta Azpro ativa.${NC}"
         else
             for ((INDEX=0; INDEX<${#ACTIVE_PORTS[@]}; INDEX++)); do
                 PORT=${ACTIVE_PORTS[$INDEX]}
@@ -457,7 +457,7 @@ close_port() {
         box_line "${WHITE}${BOLD}Fechar porta aberta${NC}"
         box_mid
         if ((${#ACTIVE_SERVICES[@]} == 0)); then
-            box_line "${YELLOW}Nenhum serviço WZPRO ativo.${NC}"
+            box_line "${YELLOW}Nenhum serviço Azpro ativo.${NC}"
         else
             for ((INDEX=0; INDEX<${#ACTIVE_SERVICES[@]}; INDEX++)); do
                 printf -v CHOICE '%02d' "$((INDEX + 1))"
@@ -537,7 +537,7 @@ update_from_github() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}Atualizar WZPRO pelo GitHub${NC}"
+    box_line "${WHITE}${BOLD}Atualizar Azpro pelo GitHub${NC}"
     box_mid
     box_line "A atualização recompila os binários."
     box_line "Os serviços podem reiniciar durante o processo."
@@ -557,14 +557,14 @@ update_from_github() {
         return
     fi
 
-    UPDATE_SCRIPT=$(mktemp /tmp/wzpro-update.XXXXXX.sh) || {
+    UPDATE_SCRIPT=$(mktemp /tmp/azpro-update.XXXXXX.sh) || {
         echo -e "${RED}Não foi possível criar arquivo temporário.${NC}"
         read -r -p "Enter para continuar..." _
         return
     }
     echo -e "${CYAN}Baixando instalador mais recente do GitHub...${NC}"
     if ! curl -fsSL --connect-timeout 15 --max-time 60 \
-        "https://raw.githubusercontent.com/Jbpro2/wzpro/main/install.sh" \
+        "https://raw.githubusercontent.com/Jbpro2/Azpro/main/install.sh" \
         -o "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}Falha ao baixar o instalador. Nada foi atualizado.${NC}"
@@ -572,7 +572,7 @@ update_from_github() {
         return
     fi
 
-    if ! grep -q 'REPO_URL="https://github.com/Jbpro2/wzpro.git"' "$UPDATE_SCRIPT"; then
+    if ! grep -q 'REPO_URL="https://github.com/Jbpro2/Azpro.git"' "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}O arquivo baixado não passou na validação do repositório.${NC}"
         read -r -p "Enter para continuar..." _
@@ -608,7 +608,7 @@ uninstall_proxy() {
     show_banner
     echo ""
     box_top
-    box_line "${RED}${BOLD}DESINSTALAR WZPRO${NC}"
+    box_line "${RED}${BOLD}DESINSTALAR Azpro${NC}"
     box_mid
     box_line "Para os serviços do proxy e remove os binários."
     box_line "Também remove os certificados TLS em /opt/mpro."
@@ -617,7 +617,7 @@ uninstall_proxy() {
     echo ""
 
     if [[ "$EUID" -ne 0 ]]; then
-        echo -e "${RED}Execute wzpro como root para desinstalar.${NC}"
+        echo -e "${RED}Execute azpro como root para desinstalar.${NC}"
         read -r -p "Enter para voltar..." _
         return 1
     fi
@@ -685,6 +685,7 @@ uninstall_proxy() {
         fi
     done
 
+    remove_owned_link "/usr/local/bin/azpro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/wzpro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/wspro" "/opt/mpro/menu"
     remove_owned_link "/usr/local/bin/mpro" "/opt/mpro/menu"
@@ -699,11 +700,11 @@ uninstall_proxy() {
         read -r -p "Enter para voltar..." _
         return 1
     fi
-    rm -rf -- "/var/cache/wzpro/cargo-target"
-    rmdir /var/cache/wzpro 2>/dev/null || true
+    rm -rf -- "/var/cache/azpro/cargo-target" "/var/cache/wzpro/cargo-target"
+    rmdir /var/cache/azpro /var/cache/wzpro 2>/dev/null || true
     rmdir /opt/mpro 2>/dev/null || true
 
-    echo -e "${GREEN}WZPRO desinstalado. SSH e dependências do sistema foram preservados.${NC}"
+    echo -e "${GREEN}Azpro desinstalado. SSH e dependências do sistema foram preservados.${NC}"
     echo -e "${YELLOW}Arquivos não reconhecidos em /opt/mpro, se houver, foram preservados.${NC}"
     sleep 3
     exit 0
@@ -714,7 +715,7 @@ show_menu() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}WZPRO PROXY Free V12.${NC}"
+    box_line "${WHITE}${BOLD}Azpro PROXY Free V12.${NC}"
     box_mid
     show_active_ports
     box_mid

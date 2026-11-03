@@ -17,8 +17,8 @@ Proxy multi-protocolo em Rust com suporte exclusivo para o protocolo xHTTP (Spli
 
 ```bash
 # Clonar ou copiar os arquivos para o servidor
-git clone https://github.com/MTSPRO2/CTProxy.git
-cd CTProxy
+git clone https://github.com/Jbpro2/Azpro.git
+cd Azpro
 
 # Substituir os arquivos pelo v2.0
 cp menu.sh menu_original.sh.backup
@@ -32,10 +32,10 @@ chmod +x install.sh
 ## Uso
 
 ```bash
-wzpro   # Único comando para abrir o menu deste proxy
+azpro   # Único comando para abrir o menu deste proxy
 ```
 
-No menu, escolha **[06] ATUALIZAR PELO GITHUB** para baixar a versão mais recente do branch `main`, recompilar os binários e atualizar o menu. Os serviços WZPRO que estavam ativos são parados durante a troca e iniciados novamente ao final; as configurações systemd e portas desligadas são preservadas. O instalador reaproveita o cache de compilação em `/var/cache/wzpro/cargo-target`, instala dependências somente quando faltam e usa paralelismo limitado pela memória disponível. A primeira compilação ainda pode demorar mais; o tempo varia conforme VPS, rede e cache.
+No menu, escolha **[06] ATUALIZAR PELO GITHUB** para baixar a versão mais recente do branch `main`, recompilar os binários e atualizar o menu. Os serviços Azpro que estavam ativos são parados durante a troca e iniciados novamente ao final; as configurações systemd e portas desligadas são preservadas. O instalador reaproveita o cache de compilação em `/var/cache/azpro/cargo-target`, instala dependências somente quando faltam e usa paralelismo limitado pela memória disponível. A primeira compilação ainda pode demorar mais; o tempo varia conforme VPS, rede e cache.
 
 ### Menu v2.0
 
@@ -148,7 +148,7 @@ ss -tlnp | grep 443
 
 ## Opção 07 — BYPASS SSH_PROXY (HTTP)
 
-A opção **[07] BYPASS SSH_PROXY (HTTP)** lista as portas numéricas WZPRO ativas e permite ligar/desligar o BYPASS individualmente em cada porta. A porta selecionada é reiniciada e as conexões atuais caem. A opção 01 e suas perguntas/configurações permanecem iguais; as opções 04 e 05 não são alteradas.
+A opção **[07] BYPASS SSH_PROXY (HTTP)** lista as portas numéricas Azpro ativas e permite ligar/desligar o BYPASS individualmente em cada porta. A porta selecionada é reiniciada e as conexões atuais caem. A opção 01 e suas perguntas/configurações permanecem iguais; as opções 04 e 05 não são alteradas.
 
 O BYPASS é destinado ao modo **SSH_PROXY** do aplicativo com payload HTTP. Para uma conexão HTTP válida, o servidor envia `101 Switching Protocols`, lê o payload e depois envia `101 <status>` e `200 <status>`, encaminhando o túnel ao SSH local da VPS (`127.0.0.1:22`). Esta sequência é específica para clientes compatíveis e não é um handshake HTTP/WebSocket padrão. O BYPASS não atua como proxy aberto nem como dispatcher de SOCKS5, TLS, WebSocket ou SECURITY. Conexões SSH diretas sem payload são encaminhadas ao SSH local sem resposta HTTP; outros protocolos não são aceitos nesse modo. Com o BYPASS desligado, a opção 01 mantém o handler legado.
 
@@ -156,4 +156,4 @@ O marcador BYPASS é individual por porta (`/opt/mpro/bypass-http-ssh-<porta>.en
 
 ## Opção 08 — Desinstalar Proxy
 
-A opção **[08] DESINSTALAR PROXY** exige execução como root e confirmação em `Deseja Desinstalar Proxy? (s/n):`; somente `s` ou `S` confirma. Ela para e desabilita somente os serviços systemd cuja linha `ExecStart` aponta para os binários WZPRO em `/opt/mpro`, remove os links instalados em `/usr/local/bin` quando ainda apontam para o WZPRO e apaga os binários, menu, certificados TLS e marcadores BYPASS/legados conhecidos. Não remove OpenSSH, Rust, OpenSSL, regras de firewall nem arquivos desconhecidos que estejam em `/opt/mpro`; se sobrarem arquivos, o diretório é preservado.
+A opção **[08] DESINSTALAR PROXY** exige execução como root e confirmação em `Deseja Desinstalar Proxy? (s/n):`; somente `s` ou `S` confirma. Ela para e desabilita somente os serviços systemd cuja linha `ExecStart` aponta para os binários Azpro em `/opt/mpro`, remove os links instalados em `/usr/local/bin` quando ainda apontam para o Azpro e apaga os binários, menu, certificados TLS e marcadores BYPASS/legados conhecidos. Não remove OpenSSH, Rust, OpenSSL, regras de firewall nem arquivos desconhecidos que estejam em `/opt/mpro`; se sobrarem arquivos, o diretório é preservado.

@@ -22,7 +22,7 @@ async fn main() -> Result<(), Error> {
     let ssh_only = has_arg("-ssh");
     let quic_port = get_quic_port();
 
-    println!("[WZPRO] BYPASS SSH_PROXY/HTTP v2.5.0");
+    println!("[Azpro] BYPASS SSH_PROXY/HTTP v2.5.0");
     println!("[TCP] Porta: {}", port);
     if bypass_enabled {
         println!("[BYPASS] SSH_PROXY com payload HTTP ativo nesta porta");
@@ -234,7 +234,7 @@ mod bypass_tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!("wzpro-bypass-{unique}"));
+        let directory = std::env::temp_dir().join(format!("azpro-bypass-{unique}"));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("bypass-http-ssh-80.enabled"), b"").unwrap();
 
@@ -249,8 +249,8 @@ mod bypass_tests {
     #[test]
     fn bypass_http_sends_second_101_then_200_with_configured_status() {
         assert_eq!(
-            bypass_http_followup("Wzpro"),
-            b"HTTP/1.1 101 Wzpro\r\n\r\nHTTP/1.1 200 Wzpro\r\n\r\n"
+            bypass_http_followup("Azpro"),
+            b"HTTP/1.1 101 Azpro\r\n\r\nHTTP/1.1 200 Azpro\r\n\r\n"
         );
     }
 }

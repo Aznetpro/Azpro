@@ -3,12 +3,12 @@
 
 REPO_URL="https://github.com/Jbpro2/Azpro.git"
 REPO_BRANCH="main"
-CMD_NAME="wzpro"
+CMD_NAME="azpro"
 TOTAL_STEPS=7
 
 CURRENT_STEP=0
 BUILD_DIR="/tmp/Mpro_build"
-CARGO_TARGET_DIR="/var/cache/wzpro/cargo-target"
+CARGO_TARGET_DIR="/var/cache/azpro/cargo-target"
 CPU_COUNT="$(nproc 2>/dev/null || echo 2)"
 MEMORY_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 2048)"
 if [ "$MEMORY_MB" -lt 2500 ]; then
@@ -19,7 +19,7 @@ else
     BUILD_JOBS="$CPU_COUNT"
     [ "$BUILD_JOBS" -gt 4 ] && BUILD_JOBS=4
 fi
-ACTIVE_WZPRO_SERVICES=()
+ACTIVE_AZPRO_SERVICES=()
 SERVICES_STOPPED=0
 
 # --- Cores e Estilos ---
@@ -44,7 +44,7 @@ log_error() {
 
 restore_active_services() {
     if [ "$SERVICES_STOPPED" -eq 1 ]; then
-        for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+        for SERVICE in "${ACTIVE_AZPRO_SERVICES[@]}"; do
             systemctl start "$SERVICE" >/dev/null 2>&1 || echo "[AVISO] Não foi possível restaurar ${SERVICE}."
         done
         SERVICES_STOPPED=0
@@ -63,21 +63,21 @@ if [ "$EUID" -ne 0 ]; then
     log_error "Este script precisa ser executado como ROOT."
 fi
 
-# Memoriza somente serviços WZPRO ativos para restaurá-los depois da troca dos binários.
+# Memoriza somente serviços Azpro ativos para restaurá-los depois da troca dos binários.
 for SERVICE_FILE in /etc/systemd/system/proxy-*.service; do
     [ -f "$SERVICE_FILE" ] || continue
     if grep -Eq '^[[:space:]]*ExecStart=.*/opt/mpro/(proxy|proxy-xhttp|proxy-integrated)([[:space:]]|$)' "$SERVICE_FILE"; then
         SERVICE_NAME=$(basename "$SERVICE_FILE")
         if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-            ACTIVE_WZPRO_SERVICES+=("$SERVICE_NAME")
+            ACTIVE_AZPRO_SERVICES+=("$SERVICE_NAME")
         fi
     fi
 done
 
 clear
-echo -e "${CYAN}${BOLD}    W Z P R O  V E R S I O N  F R E E${NC}"
+echo -e "${CYAN}${BOLD}    A Z P R O  V E R S I O N  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
-log_info "Iniciando instalação do WZPRO v3.1.0 (🇧🇷)..."
+log_info "Iniciando instalação do Azpro v3.1.0 (🇧🇷)..."
 
 # --- Etapa 1 ---
 show_progress "Verificando dependências..."
@@ -121,10 +121,10 @@ fi
 show_progress "Instalando binários..."
 mkdir -p /opt/mpro
 
-# Para somente os serviços WZPRO que estavam ativos; o menu wzpro continua
+# Para somente os serviços Azpro que estavam ativos; o menu azpro continua
 # executando durante a atualização.
 SERVICES_STOPPED=1
-for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+for SERVICE in "${ACTIVE_AZPRO_SERVICES[@]}"; do
     systemctl stop "$SERVICE" || log_error "Não foi possível parar ${SERVICE}; binários não foram trocados."
 done
 systemctl stop proxy-websocket.service > /dev/null 2>&1 || true
@@ -154,7 +154,7 @@ if [ -f "$CARGO_TARGET_DIR/release/mpro-integrated" ]; then
 fi
 
 # Retoma apenas serviços que estavam ativos antes da atualização.
-for SERVICE in "${ACTIVE_WZPRO_SERVICES[@]}"; do
+for SERVICE in "${ACTIVE_AZPRO_SERVICES[@]}"; do
     systemctl start "$SERVICE" || log_error "Binários atualizados, mas falhou ao reiniciar ${SERVICE}. Verifique com: systemctl status ${SERVICE}"
 done
 SERVICES_STOPPED=0
@@ -169,7 +169,7 @@ if [ -f "menu.sh" ]; then
         log_error "Já existe outro comando em ${MENU_COMMAND}; ele não foi sobrescrito."
     fi
     ln -sfn /opt/mpro/menu "$MENU_COMMAND"
-    for LEGACY_COMMAND in /usr/local/bin/wspro /usr/local/bin/mpro; do
+    for LEGACY_COMMAND in /usr/local/bin/wzpro /usr/local/bin/wspro /usr/local/bin/mpro; do
         if [ -L "$LEGACY_COMMAND" ] && [ "$(readlink -- "$LEGACY_COMMAND")" = "/opt/mpro/menu" ]; then
             rm -f -- "$LEGACY_COMMAND"
         fi
