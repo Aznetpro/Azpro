@@ -117,13 +117,11 @@ show_active_ports() {
 
 create_service() {
     local PORT=$1
-    local HTTPS=$2
-    local STATUS=$3
-    local SSH_ONLY=$4
+    local STATUS=$2
+    local SSH_ONLY=$3
     local SERVICE_FILE="${SYSTEMD_DIR}/proxy-${PORT}.service"
     EXTRA_ARGS="-p ${PORT}"
     [[ -n "$STATUS" ]] && EXTRA_ARGS="${EXTRA_ARGS} -s ${STATUS}"
-    [[ "$HTTPS" == "s" ]] && EXTRA_ARGS="${EXTRA_ARGS} -t"
     [[ "$SSH_ONLY" == "s" ]] && EXTRA_ARGS="${EXTRA_ARGS} -ssh"
     cat > "$SERVICE_FILE" << EOF
 [Unit]
@@ -172,6 +170,8 @@ open_port() {
     box_mid
     box_line "${WHITE}Portas padrão: 80, 8080, 8880, 3128${NC}"
     box_line "${YELLOW}Porta 443: use opção [04] PROXY + PROTOCOLO${NC}"
+    box_line "Detecta HTTP, SOCKS4/5, SECURITY e WebSocket"
+    box_line "SOCKS4/5 e WebSocket: túnel somente para SSH:22"
     box_bottom
     echo ""
     read -p "Porta: " PORT
@@ -179,12 +179,11 @@ open_port() {
     if systemctl is-active --quiet "proxy-${PORT}.service" 2>/dev/null; then
         echo -e "${RED}Porta ${PORT} já está em uso!${NC}"; sleep 2; return
     fi
-    read -p "Habilitar o HTTPS? (s/n): " HTTPS
     read -r -p "Nome do status HTTP: " STATUS
     [[ -z "$STATUS" ]] && STATUS="@Azpro"
     read -p "Habilitar somente SSH? (s/n): " SSH_ONLY
     mkdir -p /opt/mpro
-    create_service "$PORT" "$HTTPS" "$STATUS" "$SSH_ONLY"
+    create_service "$PORT" "$STATUS" "$SSH_ONLY"
     systemctl daemon-reload
     systemctl enable "proxy-${PORT}.service" 2>/dev/null
     systemctl start "proxy-${PORT}.service" 2>/dev/null

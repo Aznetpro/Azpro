@@ -1,6 +1,10 @@
 mod protocol;
 mod relay;
+mod security;
+mod socks4;
+mod socks5;
 mod ssh;
+mod websocket;
 
 use std::env;
 use std::io::Error;
@@ -57,11 +61,9 @@ async fn start_http(listener: TcpListener, status: String, ssh_only: bool, bypas
                 let _ = client_stream.set_nodelay(true);
                 let status = status_arc.clone();
                 tokio::spawn(async move {
-                    let result = if bypass_enabled {
-                        handle_bypass_client(client_stream, &status).await
-                    } else {
-                        handle_client(client_stream, &status, ssh_only).await
-                    };
+                    let result =
+                        handle_client_protocol(client_stream, &status, ssh_only, bypass_enabled)
+                            .await;
                     if let Err(e) = result {
                         println!("Erro ao processar cliente {}: {}", addr, e);
                     }
@@ -71,6 +73,51 @@ async fn start_http(listener: TcpListener, status: String, ssh_only: bool, bypas
                 println!("Erro ao aceitar conexao: {}", e);
             }
         }
+    }
+}
+
+async fn handle_client_protocol(
+    client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
+    bypass_enabled: bool,
+) -> Result<(), Error> {
+    let detected = protocol::detect_from_stream(&client_stream).await?;
+
+    if bypass_enabled
+        && matches!(
+            detected,
+            protocol::Protocol::Http | protocol::Protocol::SshDirect
+        )
+    {
+        return handle_bypass_client(client_stream, status).await;
+    }
+
+    match detected {
+        protocol::Protocol::Socks4 => socks4::handle_socks4(client_stream)
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Socks5 => socks5::handle_socks5(client_stream)
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Security => security::handle_security(client_stream, status)
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::WebSocket => websocket::handle_websocket(client_stream, status)
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
+        protocol::Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Tls => Err(Error::new(
+            std::io::ErrorKind::Unsupported,
+            "TLS/HTTPS ainda nao e suportado pela opcao 1",
+        )),
+        protocol::Protocol::Unknown => Err(Error::new(
+            std::io::ErrorKind::InvalidData,
+            "protocolo nao reconhecido na opcao 1",
+        )),
     }
 }
 

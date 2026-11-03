@@ -8,6 +8,7 @@ const DETECT_TIMEOUT: Duration = Duration::from_millis(800);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
+    Socks4,
     Socks5,
     Tls,
     WebSocket,
@@ -23,6 +24,9 @@ pub fn detect_protocol(data: &[u8]) -> Option<Protocol> {
         return None;
     }
 
+    if data[0] == 0x04 {
+        return Some(Protocol::Socks4);
+    }
     if data[0] == 0x05 {
         return Some(Protocol::Socks5);
     }
@@ -203,6 +207,7 @@ mod tests {
 
     #[test]
     fn detects_binary_and_raw_protocol_signatures() {
+        assert_eq!(detect_protocol(&[0x04, 0x01, 0x00]), Some(Protocol::Socks4));
         assert_eq!(detect_protocol(&[0x05, 0x01, 0x00]), Some(Protocol::Socks5));
         assert_eq!(detect_protocol(&[0x16, 0x03, 0x01]), Some(Protocol::Tls));
         assert_eq!(
