@@ -1,11 +1,6 @@
 mod protocol;
 mod relay;
-mod security;
-mod socks5;
 mod ssh;
-mod tcp_fallback;
-mod tls;
-mod websocket;
 
 use std::env;
 use std::io::Error;
@@ -15,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{timeout, Duration};
 
-const MULTIPROTOCOL_DIR: &str = "/opt/mpro";
+const BYPASS_DIR: &str = "/opt/mpro";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -23,14 +18,14 @@ async fn main() -> Result<(), Error> {
     let status = get_status();
     let use_udp = has_arg("-u");
     let use_quic = has_arg("-q");
-    let multiprotocol_enabled = multiprotocol_enabled_for_port(port);
+    let bypass_enabled = bypass_enabled_for_port(port);
     let ssh_only = has_arg("-ssh");
     let quic_port = get_quic_port();
 
-    println!("[WZPRO] Multi-protocolo v2.5.0");
+    println!("[WZPRO] BYPASS SSH_PROXY/HTTP v2.5.0");
     println!("[TCP] Porta: {}", port);
-    if multiprotocol_enabled {
-        println!("[TCP] Multiprotocolo + multi-status ativo nesta porta");
+    if bypass_enabled {
+        println!("[BYPASS] SSH_PROXY com payload HTTP ativo nesta porta");
     }
 
     if use_udp {
@@ -50,16 +45,11 @@ async fn main() -> Result<(), Error> {
 
     let listener = TcpListener::bind(format!("[::]:{}", port)).await?;
     println!("Aguardando conexoes TCP...");
-    start_http(listener, status, ssh_only, multiprotocol_enabled).await;
+    start_http(listener, status, ssh_only, bypass_enabled).await;
     Ok(())
 }
 
-async fn start_http(
-    listener: TcpListener,
-    status: String,
-    ssh_only: bool,
-    multiprotocol_enabled: bool,
-) {
+async fn start_http(listener: TcpListener, status: String, ssh_only: bool, bypass_enabled: bool) {
     let status_arc = Arc::new(status);
     loop {
         match listener.accept().await {
@@ -67,8 +57,8 @@ async fn start_http(
                 let _ = client_stream.set_nodelay(true);
                 let status = status_arc.clone();
                 tokio::spawn(async move {
-                    let result = if multiprotocol_enabled {
-                        handle_multiprotocol_client(client_stream, &status, ssh_only).await
+                    let result = if bypass_enabled {
+                        handle_bypass_client(client_stream, &status).await
                     } else {
                         handle_client(client_stream, &status, ssh_only).await
                     };
@@ -84,57 +74,37 @@ async fn start_http(
     }
 }
 
-fn multiprotocol_enabled_for_port(port: u16) -> bool {
-    multiprotocol_enabled_in(port, Path::new(MULTIPROTOCOL_DIR))
+fn bypass_enabled_for_port(port: u16) -> bool {
+    bypass_enabled_in(port, Path::new(BYPASS_DIR))
 }
 
-fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
-    directory.join("multiprotocol.enabled").is_file()
-        || directory
-            .join(format!("multiprotocol-{port}.enabled"))
-            .is_file()
+fn bypass_enabled_in(port: u16, directory: &Path) -> bool {
+    directory
+        .join(format!("bypass-http-ssh-{port}.enabled"))
+        .is_file()
 }
 
-/// Despacha cada conexão da opção 01 sem consumir o prefixo usado para detectá-la.
-/// Cada protocolo recebe exclusivamente seu handshake próprio.
-async fn handle_multiprotocol_client(
-    client_stream: TcpStream,
-    status: &str,
-    ssh_only: bool,
-) -> Result<(), Error> {
+/// BYPASS dedicado a SSH_PROXY com payload HTTP. Não envia status a SSH_DIRECT.
+async fn handle_bypass_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
     let detected = protocol::detect_from_stream(&client_stream).await?;
-    println!("[MULTI] Protocolo detectado: {:?}", detected);
+    println!("[BYPASS] Protocolo detectado: {:?}", detected);
 
     match detected {
-        protocol::Protocol::Socks5 => socks5::handle_socks5(client_stream)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Tls => tls::handle_tls(client_stream)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::WebSocket => websocket::handle_websocket(client_stream, status)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Security => security::handle_security(client_stream, status)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Http => {
-            handle_multiprotocol_http_client(client_stream, status, ssh_only).await
-        }
+        protocol::Protocol::Http => handle_bypass_http_client(client_stream, status).await,
         protocol::Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Unknown => tcp_fallback::handle_tcp(client_stream)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        other => Err(Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("BYPASS SSH_PROXY espera payload HTTP; recebido {:?}", other),
+        )),
     }
 }
 
-/// Handshake HTTP customizado 101/101/200 usado somente no dispatcher multiprotocolo.
-async fn handle_multiprotocol_http_client(
+/// Status customizados para SSH_PROXY com payload HTTP; sempre termina no SSH local.
+async fn handle_bypass_http_client(
     mut client_stream: TcpStream,
     status: &str,
-    ssh_only: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
@@ -150,28 +120,18 @@ async fn handle_multiprotocol_http_client(
         return Ok(());
     }
 
-    let followup = multiprotocol_http_followup(status);
+    let followup = bypass_http_followup(status);
     client_stream.write_all(&followup).await?;
     client_stream.flush().await?;
-
-    let addr_proxy = if ssh_only {
-        "127.0.0.1:22"
-    } else {
-        match timeout(Duration::from_millis(200), peek_stream(&client_stream)).await {
-            Ok(Ok(data)) if data.contains("SSH") || data.is_empty() => "127.0.0.1:22",
-            Ok(_) => "127.0.0.1:1194",
-            Err(_) => "127.0.0.1:22",
-        }
-    };
-    println!("[MULTI][HTTP] Backend selecionado: {}", addr_proxy);
-    relay_to_backend(client_stream, addr_proxy).await
+    println!("[BYPASS][HTTP] Encaminhando SSH para 127.0.0.1:22");
+    relay_to_backend(client_stream, "127.0.0.1:22").await
 }
 
-fn multiprotocol_http_followup(status: &str) -> Vec<u8> {
+fn bypass_http_followup(status: &str) -> Vec<u8> {
     format!("HTTP/1.1 101 {status}\r\n\r\nHTTP/1.1 200 {status}\r\n\r\n").into_bytes()
 }
 
-/// Caminho HTTP legado, preservado para quando o multiprotocolo global está desligado.
+/// Caminho HTTP legado, preservado quando o BYPASS está desligado.
 async fn handle_client(
     mut client_stream: TcpStream,
     status: &str,
@@ -264,32 +224,32 @@ fn has_arg(arg: &str) -> bool {
 }
 
 #[cfg(test)]
-mod multiprotocol_tests {
-    use super::{multiprotocol_enabled_in, multiprotocol_http_followup};
+mod bypass_tests {
+    use super::{bypass_enabled_in, bypass_http_followup};
     use std::path::Path;
 
     #[test]
-    fn per_port_flag_only_enables_the_selected_port_and_global_flag_still_works() {
+    fn bypass_marker_only_enables_the_selected_port() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!("wzpro-multiprotocol-{unique}"));
+        let directory = std::env::temp_dir().join(format!("wzpro-bypass-{unique}"));
         std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("multiprotocol-80.enabled"), b"").unwrap();
+        std::fs::write(directory.join("bypass-http-ssh-80.enabled"), b"").unwrap();
 
-        assert!(multiprotocol_enabled_in(80, &directory));
-        assert!(!multiprotocol_enabled_in(443, &directory));
+        assert!(bypass_enabled_in(80, &directory));
+        assert!(!bypass_enabled_in(443, &directory));
 
         std::fs::write(directory.join("multiprotocol.enabled"), b"").unwrap();
-        assert!(multiprotocol_enabled_in(443, &directory));
+        assert!(!bypass_enabled_in(443, &directory));
         std::fs::remove_dir_all(Path::new(&directory)).unwrap();
     }
 
     #[test]
-    fn multiprotocol_http_sends_second_101_then_200_with_configured_status() {
+    fn bypass_http_sends_second_101_then_200_with_configured_status() {
         assert_eq!(
-            multiprotocol_http_followup("Wzpro"),
+            bypass_http_followup("Wzpro"),
             b"HTTP/1.1 101 Wzpro\r\n\r\nHTTP/1.1 200 Wzpro\r\n\r\n"
         );
     }
