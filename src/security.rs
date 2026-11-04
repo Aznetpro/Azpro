@@ -23,6 +23,10 @@ pub async fn handle_security(mut socket: TcpStream, status: &str, ssh_only: bool
         Err(_) => bail!("timeout lendo preâmbulo SECURITY"),
     };
     let preface_text = String::from_utf8_lossy(&preface[..bytes_read]);
+    if crate::protocol::has_expect_continue(&preface[..bytes_read]) {
+        socket.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?;
+        socket.flush().await?;
+    }
     let preferred = if ssh_only || preface_text.contains("SSH") || preface_text.contains("ssh") {
         "127.0.0.1:22"
     } else {

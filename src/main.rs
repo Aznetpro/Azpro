@@ -15,6 +15,8 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{timeout, Duration};
 
 const BYPASS_DIR: &str = "/opt/mpro";
+const MAX_HTTP_PREFACE: usize = 16 * 1024;
+const HTTP_PREFACE_IDLE: Duration = Duration::from_millis(250);
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -156,24 +158,56 @@ async fn handle_bypass_http_client(
     status: &str,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
-    client_stream
-        .write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
-        .await?;
-    client_stream.flush().await?;
-
-    let mut buffer = [0u8; 1024];
-    let bytes_read = timeout(Duration::from_secs(5), client_stream.read(&mut buffer))
-        .await
-        .map_err(|_| Error::new(std::io::ErrorKind::TimedOut, "timeout lendo payload HTTP"))??;
-    if bytes_read == 0 {
-        return Ok(());
-    }
+    let _preface = read_http_preface(&mut client_stream).await?;
 
     let followup = bypass_http_followup(status);
     client_stream.write_all(&followup).await?;
     client_stream.flush().await?;
     println!("[BYPASS][HTTP] Encaminhando SSH para 127.0.0.1:22");
     relay_to_backend(client_stream, "127.0.0.1:22").await
+}
+
+/// Lê o preâmbulo em vários segmentos sem esperar Content-Length; envia 100 Continue
+/// assim que um cabeçalho Expect correspondente for reconhecido.
+async fn read_http_preface(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
+    let mut preface = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let first_read = timeout(Duration::from_secs(5), stream.read(&mut chunk))
+        .await
+        .map_err(|_| Error::new(std::io::ErrorKind::TimedOut, "timeout lendo payload HTTP"))??;
+    if first_read == 0 {
+        return Err(Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "cliente fechou antes do payload HTTP",
+        ));
+    }
+    preface.extend_from_slice(&chunk[..first_read.min(MAX_HTTP_PREFACE)]);
+
+    let mut continue_sent = false;
+    if protocol::has_expect_continue(&preface) {
+        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?;
+        stream.flush().await?;
+        continue_sent = true;
+    }
+
+    while preface.len() < MAX_HTTP_PREFACE {
+        let read = timeout(HTTP_PREFACE_IDLE, stream.read(&mut chunk)).await;
+        match read {
+            Ok(Ok(n)) if n > 0 => {
+                let available = MAX_HTTP_PREFACE - preface.len();
+                preface.extend_from_slice(&chunk[..n.min(available)]);
+                if !continue_sent && protocol::has_expect_continue(&preface) {
+                    stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?;
+                    stream.flush().await?;
+                    continue_sent = true;
+                }
+            }
+            Ok(Ok(_)) | Err(_) => break,
+            Ok(Err(error)) => return Err(error),
+        }
+    }
+
+    Ok(preface)
 }
 
 fn bypass_http_followup(status: &str) -> Vec<u8> {
@@ -187,13 +221,10 @@ async fn handle_client(
     ssh_only: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
+    let _preface = read_http_preface(&mut client_stream).await?;
     client_stream
         .write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
         .await?;
-
-    let mut buffer = vec![0; 1024];
-    let _ = client_stream.read(&mut buffer).await?;
-
     client_stream
         .write_all(format!("HTTP/1.1 200 {}\r\n\r\n", status).as_bytes())
         .await?;

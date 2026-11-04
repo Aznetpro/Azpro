@@ -48,8 +48,14 @@ pub fn detect_protocol(data: &[u8]) -> Option<Protocol> {
             return None;
         };
         let headers = &request[..header_end];
-        let lower = headers.to_ascii_lowercase();
-        if lower.contains("upgrade: security") || lower.contains("x-protocol: security") {
+        let security_upgrade = header_value(headers, "Upgrade").is_some_and(|value| {
+            value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("security"))
+        });
+        let security_protocol = header_value(headers, "X-Protocol")
+            .is_some_and(|value| value.eq_ignore_ascii_case("security"));
+        if security_upgrade || security_protocol {
             return Some(Protocol::Security);
         }
         if is_valid_websocket_upgrade(headers) {
@@ -59,6 +65,17 @@ pub fn detect_protocol(data: &[u8]) -> Option<Protocol> {
     }
 
     None
+}
+
+/// Reconhece Expect: 100-continue e variantes usadas por payloads customizados.
+pub fn has_expect_continue(data: &[u8]) -> bool {
+    String::from_utf8_lossy(data).lines().any(|line| {
+        let Some((name, value)) = line.split_once(':') else {
+            return false;
+        };
+        name.trim().eq_ignore_ascii_case("expect")
+            && value.to_ascii_lowercase().contains("continue")
+    })
 }
 
 /// Aguarda um prefixo suficiente para classificação, usando peek para preservar
@@ -203,7 +220,7 @@ fn starts_with_ascii_case_insensitive(data: &[u8], prefix: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_protocol, Protocol};
+    use super::{detect_protocol, has_expect_continue, Protocol};
 
     #[test]
     fn detects_binary_and_raw_protocol_signatures() {
@@ -229,6 +246,12 @@ mod tests {
     }
 
     #[test]
+    fn does_not_misclassify_http_when_security_text_appears_in_an_unrelated_header() {
+        let http = b"GET / HTTP/1.1\r\nHost: example\r\nUser-Agent: note Upgrade: security\r\n\r\n";
+        assert_eq!(detect_protocol(http), Some(Protocol::Http));
+    }
+
+    #[test]
     fn only_first_http_header_block_controls_dispatch() {
         let pipelined = b"GET / HTTP/1.1\r\nHost: example\r\n\r\nGET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
         let incomplete_upgrade =
@@ -249,5 +272,18 @@ mod tests {
         assert_eq!(detect_protocol(propfind), Some(Protocol::Http));
         assert_eq!(detect_protocol(m_search), Some(Protocol::Http));
         assert_eq!(detect_protocol(b"?? / HTTP/1.1\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn detects_continue_expect_header_case_insensitively() {
+        assert!(has_expect_continue(
+            b"GET / HTTP/1.1\r\nExpect: 101-continue\r\n\r\n"
+        ));
+        assert!(has_expect_continue(
+            b"POST / HTTP/1.1\nexpect: 100-Continue\n\n"
+        ));
+        assert!(!has_expect_continue(
+            b"GET / HTTP/1.1\r\nHost: example\r\n\r\n"
+        ));
     }
 }

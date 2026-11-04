@@ -39,6 +39,8 @@ azpro   # Único comando para abrir o menu deste proxy
 
 A opção **[01] ABRIR PORTA** detecta HTTP, SOCKS4/SOCKS4a, SOCKS5, SECURITY e WebSocket automaticamente na porta TCP escolhida. Também aceita **SSH_DIRECT**: se a conexão chegar sem um handshake reconhecido, ela é encaminhada ao SSH local (`127.0.0.1:22`), inclusive quando o cliente aguarda primeiro o banner SSH. HTTP e SECURITY usam o status personalizado informado no menu; WebSocket e SOCKS usam os códigos definidos por seus próprios protocolos. SOCKS4/4a, SOCKS5 e WebSocket encaminham somente ao SSH local; SOCKS não permite acesso arbitrário a outros destinos e a opção não cria um proxy aberto. HTTP mantém o fluxo de túnel implementado pelo Azpro, não é um proxy HTTP geral. TLS/HTTPS direto não está incluído na opção 01; para xHTTP/TLS, use a opção 04.
 
+Para payloads HTTP em etapas, a opção 01 lê fragmentos de forma limitada e envia `100 Continue` quando encontra um cabeçalho `Expect: ...continue`, seguido das respostas `101` e `200` do túnel. O `Content-Length` declarado no payload não é usado para aguardar um corpo ilimitado.
+
 No menu, escolha **[06] ATUALIZAR PELO GITHUB** para baixar a versão mais recente do branch `main`, recompilar os binários e atualizar o menu. Os serviços Azpro que estavam ativos são parados durante a troca e iniciados novamente ao final; as configurações systemd e portas desligadas são preservadas. O instalador reaproveita o cache de compilação em `/var/cache/azpro/cargo-target`, instala dependências somente quando faltam e usa paralelismo limitado pela memória disponível. A primeira compilação ainda pode demorar mais; o tempo varia conforme VPS, rede e cache.
 
 ### Menu v2.0
