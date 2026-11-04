@@ -8,7 +8,7 @@ const MAX_SECURITY_PREFACE: usize = 8192;
 
 /// Handler do modo SECURITY histórico do projeto: status 101, leitura do preâmbulo,
 /// status 200 com Upgrade: security e túnel para SSH/VPN local.
-pub async fn handle_security(mut socket: TcpStream, status: &str) -> Result<()> {
+pub async fn handle_security(mut socket: TcpStream, status: &str, ssh_only: bool) -> Result<()> {
     socket.set_nodelay(true)?;
     socket
         .write_all(format!("HTTP/1.1 101 {}\r\n\r\n", status).as_bytes())
@@ -23,7 +23,7 @@ pub async fn handle_security(mut socket: TcpStream, status: &str) -> Result<()> 
         Err(_) => bail!("timeout lendo preâmbulo SECURITY"),
     };
     let preface_text = String::from_utf8_lossy(&preface[..bytes_read]);
-    let preferred = if preface_text.contains("SSH") || preface_text.contains("ssh") {
+    let preferred = if ssh_only || preface_text.contains("SSH") || preface_text.contains("ssh") {
         "127.0.0.1:22"
     } else {
         "127.0.0.1:1194"
@@ -36,10 +36,13 @@ pub async fn handle_security(mut socket: TcpStream, status: &str) -> Result<()> 
 
     let mut backend = match timeout(Duration::from_secs(3), TcpStream::connect(preferred)).await {
         Ok(Ok(stream)) => stream,
-        _ => match timeout(Duration::from_secs(3), TcpStream::connect(alternate)).await {
-            Ok(Ok(stream)) => stream,
-            _ => bail!("backends SECURITY SSH/VPN indisponiveis"),
-        },
+        _ if !ssh_only => {
+            match timeout(Duration::from_secs(3), TcpStream::connect(alternate)).await {
+                Ok(Ok(stream)) => stream,
+                _ => bail!("backends SECURITY SSH/VPN indisponiveis"),
+            }
+        }
+        _ => bail!("backend SECURITY SSH indisponivel em 127.0.0.1:22"),
     };
     backend.set_nodelay(true)?;
 

@@ -100,7 +100,7 @@ async fn handle_client_protocol(
         protocol::Protocol::Socks5 => socks5::handle_socks5(client_stream)
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Security => security::handle_security(client_stream, status)
+        protocol::Protocol::Security => security::handle_security(client_stream, status, ssh_only)
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
         protocol::Protocol::WebSocket => websocket::handle_websocket(client_stream, status)
