@@ -4,6 +4,7 @@ mod security;
 mod socks4;
 mod socks5;
 mod ssh;
+mod tls;
 mod websocket;
 
 use std::env;
@@ -115,10 +116,12 @@ async fn handle_client_protocol(
                 .await
                 .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))
         }
-        protocol::Protocol::Tls => Err(Error::new(
-            std::io::ErrorKind::Unsupported,
-            "TLS/HTTPS ainda nao e suportado pela opcao 1",
-        )),
+        protocol::Protocol::Tls => {
+            println!("[TLS] ClientHello detectado; iniciando passthrough para SSH/VPN local");
+            tls::handle_tls(client_stream)
+                .await
+                .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))
+        }
     }
 }
 
