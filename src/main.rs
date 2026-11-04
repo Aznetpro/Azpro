@@ -90,7 +90,7 @@ async fn handle_client_protocol(
             protocol::Protocol::Http | protocol::Protocol::SshDirect
         )
     {
-        return handle_bypass_client(client_stream, status).await;
+        return handle_bypass_client(client_stream, status, detected).await;
     }
 
     match detected {
@@ -107,16 +107,15 @@ async fn handle_client_protocol(
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
         protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
-        protocol::Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::SshDirect | protocol::Protocol::Unknown => {
+            println!("[SSH_DIRECT] Encaminhando conexao para 127.0.0.1:22");
+            ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
+                .await
+                .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))
+        }
         protocol::Protocol::Tls => Err(Error::new(
             std::io::ErrorKind::Unsupported,
             "TLS/HTTPS ainda nao e suportado pela opcao 1",
-        )),
-        protocol::Protocol::Unknown => Err(Error::new(
-            std::io::ErrorKind::InvalidData,
-            "protocolo nao reconhecido na opcao 1",
         )),
     }
 }
@@ -132,8 +131,11 @@ fn bypass_enabled_in(port: u16, directory: &Path) -> bool {
 }
 
 /// BYPASS dedicado a SSH_PROXY com payload HTTP. Não envia status a SSH_DIRECT.
-async fn handle_bypass_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
-    let detected = protocol::detect_from_stream(&client_stream).await?;
+async fn handle_bypass_client(
+    client_stream: TcpStream,
+    status: &str,
+    detected: protocol::Protocol,
+) -> Result<(), Error> {
     println!("[BYPASS] Protocolo detectado: {:?}", detected);
 
     match detected {

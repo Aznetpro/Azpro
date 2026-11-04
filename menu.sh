@@ -170,8 +170,8 @@ open_port() {
     box_mid
     box_line "${WHITE}Portas padrão: 80, 8080, 8880, 3128${NC}"
     box_line "${YELLOW}Porta 443: use opção [04] PROXY + PROTOCOLO${NC}"
-    box_line "Detecta HTTP, SOCKS4/5, SECURITY e WebSocket"
-    box_line "SOCKS4/5 e WebSocket: túnel somente para SSH:22"
+    box_line "HTTP, SOCKS4/5, SECURITY, WebSocket e SSH_DIRECT"
+    box_line "SSH_DIRECT: encaminha para o SSH local (porta 22)"
     box_bottom
     echo ""
     read -p "Porta: " PORT
