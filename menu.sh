@@ -398,18 +398,61 @@ manage_bypass() {
 }
 
 restart_port() {
-    clear
-    show_banner
-    echo ""
-    box_top
-    show_active_ports
-    box_bottom
-    echo ""
-    read -p "Porta (ou integrated): " PORT
-    [[ -z "$PORT" ]] && return
-    systemctl restart "proxy-${PORT}.service" 2>/dev/null
-    echo -e "${GREEN}Porta ${PORT} reiniciada!${NC}"
-    sleep 2
+    local SERVICE_FILE SERVICE NAME LABEL CHOICE INDEX=0 SELECTED=""
+    local -a ACTIVE_SERVICES=() ACTIVE_LABELS=()
+
+    while true; do
+        ACTIVE_SERVICES=()
+        ACTIVE_LABELS=()
+        for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+            [[ -f "$SERVICE_FILE" ]] || continue
+            SERVICE=$(basename "$SERVICE_FILE")
+            systemctl is-active --quiet "$SERVICE" 2>/dev/null || continue
+            NAME=${SERVICE#proxy-}
+            NAME=${NAME%.service}
+            case "$NAME" in
+                integrated) LABEL="INTEGRADO" ;;
+                443) LABEL="XHTTP (443)" ;;
+                *) LABEL="PORTA ${NAME}" ;;
+            esac
+            ACTIVE_SERVICES+=("$SERVICE")
+            ACTIVE_LABELS+=("$LABEL")
+        done
+
+        clear
+        show_banner
+        echo ""
+        box_top
+        box_line "${WHITE}${BOLD}Reiniciar porta aberta${NC}"
+        box_mid
+        if ((${#ACTIVE_SERVICES[@]} == 0)); then
+            box_line "${YELLOW}Nenhum serviço Azpro ativo.${NC}"
+        else
+            for ((INDEX=0; INDEX<${#ACTIVE_SERVICES[@]}; INDEX++)); do
+                printf -v CHOICE '%02d' "$((INDEX + 1))"
+                box_line "${WHITE}[${CHOICE}]${NC} - ${ACTIVE_LABELS[$INDEX]}"
+            done
+        fi
+        box_mid
+        box_line "${WHITE}[00]${NC} - VOLTAR"
+        box_bottom
+        echo ""
+        read -r -p "Escolha a porta para reiniciar: " CHOICE
+        [[ "$CHOICE" == "00" || "$CHOICE" == "0" || -z "$CHOICE" ]] && return
+
+        if [[ "$CHOICE" =~ ^[0-9]+$ ]] && ((10#$CHOICE >= 1 && 10#$CHOICE <= ${#ACTIVE_SERVICES[@]})); then
+            SELECTED=${ACTIVE_SERVICES[$((10#$CHOICE - 1))]}
+            if systemctl restart "$SELECTED" 2>/dev/null; then
+                echo -e "${GREEN}${ACTIVE_LABELS[$((10#$CHOICE - 1))]} reiniciado!${NC}"
+            else
+                echo -e "${RED}Não foi possível reiniciar ${SELECTED}.${NC}"
+            fi
+            read -r -p "Enter para continuar..." _
+        else
+            echo -e "${RED}Opção inválida.${NC}"
+            sleep 1
+        fi
+    done
 }
 
 close_service() {
