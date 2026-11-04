@@ -119,10 +119,16 @@ create_service() {
     local PORT=$1
     local STATUS=$2
     local SSH_ONLY=$3
+    local HTTPS=$4
     local SERVICE_FILE="${SYSTEMD_DIR}/proxy-${PORT}.service"
     EXTRA_ARGS="-p ${PORT}"
     [[ -n "$STATUS" ]] && EXTRA_ARGS="${EXTRA_ARGS} -s ${STATUS}"
     [[ "$SSH_ONLY" == "s" ]] && EXTRA_ARGS="${EXTRA_ARGS} -ssh"
+    if [[ "$HTTPS" == "s" ]]; then
+        EXTRA_ARGS="${EXTRA_ARGS} -t"
+    else
+        EXTRA_ARGS="${EXTRA_ARGS} --no-tls"
+    fi
     cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Mpro - Porta ${PORT}
@@ -179,9 +185,17 @@ open_port() {
     fi
     read -r -p "Nome do status HTTP: " STATUS
     [[ -z "$STATUS" ]] && STATUS="@Azpro"
+    read -r -p "Habilitar o HTTPS/TLS? (S/n, padrão sim): " HTTPS
+    HTTPS=${HTTPS,,}
+    [[ -z "$HTTPS" ]] && HTTPS="s"
+    if [[ "$HTTPS" != "s" && "$HTTPS" != "n" ]]; then
+        echo -e "${RED}Resposta inválida. Use s ou n.${NC}"
+        read -r -p "Enter pra continuar..."
+        return
+    fi
     read -p "Habilitar somente SSH? (s/n): " SSH_ONLY
     mkdir -p /opt/mpro
-    create_service "$PORT" "$STATUS" "$SSH_ONLY"
+    create_service "$PORT" "$STATUS" "$SSH_ONLY" "$HTTPS"
     systemctl daemon-reload
     systemctl enable "proxy-${PORT}.service" 2>/dev/null
     systemctl start "proxy-${PORT}.service" 2>/dev/null

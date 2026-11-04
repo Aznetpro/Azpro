@@ -27,6 +27,7 @@ async fn main() -> Result<(), Error> {
     let use_quic = has_arg("-q");
     let bypass_enabled = bypass_enabled_for_port(port);
     let ssh_only = has_arg("-ssh");
+    let tls_enabled = has_arg("-t") || !has_arg("--no-tls");
     let quic_port = get_quic_port();
 
     println!("[Azpro] BYPASS SSH_PROXY/HTTP v2.5.0");
@@ -52,11 +53,17 @@ async fn main() -> Result<(), Error> {
 
     let listener = TcpListener::bind(format!("[::]:{}", port)).await?;
     println!("Aguardando conexoes TCP...");
-    start_http(listener, status, ssh_only, bypass_enabled).await;
+    start_http(listener, status, ssh_only, bypass_enabled, tls_enabled).await;
     Ok(())
 }
 
-async fn start_http(listener: TcpListener, status: String, ssh_only: bool, bypass_enabled: bool) {
+async fn start_http(
+    listener: TcpListener,
+    status: String,
+    ssh_only: bool,
+    bypass_enabled: bool,
+    tls_enabled: bool,
+) {
     let status_arc = Arc::new(status);
     loop {
         match listener.accept().await {
@@ -64,9 +71,14 @@ async fn start_http(listener: TcpListener, status: String, ssh_only: bool, bypas
                 let _ = client_stream.set_nodelay(true);
                 let status = status_arc.clone();
                 tokio::spawn(async move {
-                    let result =
-                        handle_client_protocol(client_stream, &status, ssh_only, bypass_enabled)
-                            .await;
+                    let result = handle_client_protocol(
+                        client_stream,
+                        &status,
+                        ssh_only,
+                        bypass_enabled,
+                        tls_enabled,
+                    )
+                    .await;
                     if let Err(e) = result {
                         println!("Erro ao processar cliente {}: {}", addr, e);
                     }
@@ -84,6 +96,7 @@ async fn handle_client_protocol(
     status: &str,
     ssh_only: bool,
     bypass_enabled: bool,
+    tls_enabled: bool,
 ) -> Result<(), Error> {
     let detected = protocol::detect_from_stream(&client_stream).await?;
 
@@ -117,6 +130,13 @@ async fn handle_client_protocol(
                 .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))
         }
         protocol::Protocol::Tls => {
+            if !tls_enabled {
+                println!("[TLS] ClientHello recusado: HTTPS/TLS desativado nesta porta");
+                return Err(Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "HTTPS/TLS desativado para esta porta",
+                ));
+            }
             println!("[TLS] ClientHello detectado; iniciando passthrough para SSH/VPN local");
             tls::handle_tls(client_stream)
                 .await
