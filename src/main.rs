@@ -244,10 +244,46 @@ async fn handle_client(
     ssh_only: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
-    let _preface = read_http_preface(&mut client_stream).await?;
-    client_stream
-        .write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
-        .await?;
+    let expect_continue = peek_http_expect_continue(&client_stream).await?;
+    if expect_continue {
+        // Alguns payloads do app esperam 100 Continue antes dos status do túnel.
+        client_stream
+            .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")
+            .await?;
+        client_stream.flush().await?;
+    } else {
+        // Protocolo da opção 1 do AWProxy: envia 101 antes de consumir o payload.
+        client_stream
+            .write_all(format!("HTTP/1.1 101 {status}\r\n\r\n").as_bytes())
+            .await?;
+        client_stream.flush().await?;
+    }
+
+    let mut initial_payload = [0u8; 1024];
+    let bytes_read = timeout(
+        Duration::from_secs(5),
+        client_stream.read(&mut initial_payload),
+    )
+    .await
+    .map_err(|_| {
+        Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timeout lendo payload inicial do proxy",
+        )
+    })??;
+    if bytes_read == 0 {
+        return Err(Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "cliente fechou antes do payload inicial",
+        ));
+    }
+
+    if expect_continue {
+        client_stream
+            .write_all(format!("HTTP/1.1 101 {status}\r\n\r\n").as_bytes())
+            .await?;
+        client_stream.flush().await?;
+    }
     client_stream
         .write_all(format!("HTTP/1.1 200 {}\r\n\r\n", status).as_bytes())
         .await?;
@@ -265,6 +301,19 @@ async fn handle_client(
 
     relay_to_backend(client_stream, addr_proxy).await?;
     Ok(())
+}
+
+async fn peek_http_expect_continue(stream: &TcpStream) -> Result<bool, Error> {
+    let mut buffer = vec![0u8; MAX_HTTP_PREFACE];
+    let bytes_peeked = timeout(HTTP_PREFACE_IDLE, stream.peek(&mut buffer))
+        .await
+        .map_err(|_| {
+            Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timeout verificando Expect no payload HTTP",
+            )
+        })??;
+    Ok(protocol::has_expect_continue(&buffer[..bytes_peeked]))
 }
 
 async fn relay_to_backend(mut client_stream: TcpStream, addr: &str) -> Result<(), Error> {
