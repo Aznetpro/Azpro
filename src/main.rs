@@ -92,14 +92,7 @@ async fn handle_client_protocol(
     bypass_enabled: bool,
     tls_enabled: bool,
 ) -> Result<(), Error> {
-    if peek_tls_client_hello(&client_stream).await? {
-        if !tls_enabled {
-            println!("[TLS] ClientHello recusado: HTTPS/TLS desativado nesta porta");
-            return Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "HTTPS/TLS desativado para esta porta",
-            ));
-        }
+    if tls_enabled && peek_tls_client_hello(&client_stream).await? {
         println!("[TLS] ClientHello detectado; iniciando passthrough para SSH/VPN local");
         return tls::handle_tls(client_stream)
             .await
@@ -146,28 +139,14 @@ async fn handle_http_tunnel(
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
-        .write_all(&http_status_response(101, "Switching Protocols"))
+        .write_all(&http_status_response(101, status))
         .await?;
     client_stream.flush().await?;
 
     let mut initial_payload = [0u8; 1024];
-    let bytes_read = timeout(
-        Duration::from_secs(5),
-        client_stream.read(&mut initial_payload),
-    )
-    .await
-    .map_err(|_| {
-        Error::new(
-            std::io::ErrorKind::TimedOut,
-            "timeout lendo payload inicial do proxy",
-        )
-    })??;
-    if bytes_read == 0 {
-        return Err(Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "cliente fechou antes do payload inicial",
-        ));
-    }
+    // O AWProxy faz uma única leitura de até 1024 bytes sem timeout e prossegue
+    // para o status final mesmo se a conexão fechar durante essa leitura.
+    let _ = client_stream.read(&mut initial_payload).await?;
 
     client_stream
         .write_all(&http_status_response(200, status))
@@ -285,10 +264,10 @@ mod bypass_tests {
     }
 
     #[test]
-    fn http_handshake_uses_switching_protocols_then_custom_200() {
+    fn http_handshake_uses_the_configured_status_for_both_responses() {
         assert_eq!(
-            http_status_response(101, "Switching Protocols"),
-            b"HTTP/1.1 101 Switching Protocols\r\n\r\n"
+            http_status_response(101, "@Azpro"),
+            b"HTTP/1.1 101 @Azpro\r\n\r\n"
         );
         assert_eq!(
             http_status_response(200, "@Azpro"),
