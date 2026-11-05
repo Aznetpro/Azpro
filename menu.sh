@@ -183,16 +183,18 @@ open_port() {
     if systemctl is-active --quiet "proxy-${PORT}.service" 2>/dev/null; then
         echo -e "${RED}Porta ${PORT} já está em uso!${NC}"; sleep 2; return
     fi
-    read -r -p "Nome do status HTTP: " STATUS
-    [[ -z "$STATUS" ]] && STATUS="@Azpro"
     read -r -p "Habilitar o HTTPS/TLS? (s/n): " HTTPS
     HTTPS=${HTTPS,,}
+    [[ -z "$HTTPS" ]] && HTTPS="n"
     if [[ "$HTTPS" != "s" && "$HTTPS" != "n" ]]; then
         echo -e "${RED}Resposta inválida. Use s ou n.${NC}"
         read -r -p "Enter pra continuar..."
         return
     fi
+    read -r -p "Status HTTP (Padrão: @Azpro): " STATUS
+    [[ -z "$STATUS" ]] && STATUS="@Azpro"
     read -p "Habilitar somente SSH? (s/n): " SSH_ONLY
+    SSH_ONLY=${SSH_ONLY,,}
     mkdir -p /opt/mpro
     create_service "$PORT" "$STATUS" "$SSH_ONLY" "$HTTPS"
     systemctl daemon-reload

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 mod protocol;
 mod relay;
 mod tls;
@@ -11,8 +12,6 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{timeout, Duration};
 
 const BYPASS_DIR: &str = "/opt/mpro";
-const MAX_HTTP_PREFACE: usize = 16 * 1024;
-const HTTP_PREFACE_IDLE: Duration = Duration::from_millis(250);
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -93,63 +92,25 @@ async fn handle_client_protocol(
     bypass_enabled: bool,
     tls_enabled: bool,
 ) -> Result<(), Error> {
-    let detected = protocol::detect_from_stream(&client_stream).await?;
+    if peek_tls_client_hello(&client_stream).await? {
+        if !tls_enabled {
+            println!("[TLS] ClientHello recusado: HTTPS/TLS desativado nesta porta");
+            return Err(Error::new(
+                std::io::ErrorKind::Unsupported,
+                "HTTPS/TLS desativado para esta porta",
+            ));
+        }
+        println!("[TLS] ClientHello detectado; iniciando passthrough para SSH/VPN local");
+        return tls::handle_tls(client_stream)
+            .await
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()));
+    }
 
-    if bypass_enabled && detected == protocol::Protocol::Http {
+    if bypass_enabled {
         return handle_bypass_http_client(client_stream, status).await;
     }
 
-    match detected {
-        protocol::Protocol::Socks4 => {
-            println!("[PROTOCOLO] SOCKS4/SOCKS4a desativado na opção 1");
-            Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "SOCKS4/SOCKS4a desativado na opção 1",
-            ))
-        }
-        protocol::Protocol::Socks5 => {
-            println!("[PROTOCOLO] SOCKS5 desativado na opção 1");
-            Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "SOCKS5 desativado na opção 1",
-            ))
-        }
-        protocol::Protocol::Security => {
-            println!("[PROTOCOLO] SECURITY desativado na opção 1");
-            Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "SECURITY desativado na opção 1",
-            ))
-        }
-        protocol::Protocol::WebSocket => {
-            println!("[PROTOCOLO] WebSocket desativado na opção 1");
-            Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "WebSocket desativado na opção 1",
-            ))
-        }
-        protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
-        protocol::Protocol::SshDirect | protocol::Protocol::Unknown => {
-            println!("[PROTOCOLO] SSH_DIRECT/Unknown desativado na opção 1");
-            Err(Error::new(
-                std::io::ErrorKind::Unsupported,
-                "somente HTTP e TLS/HTTPS estao habilitados na opcao 1",
-            ))
-        }
-        protocol::Protocol::Tls => {
-            if !tls_enabled {
-                println!("[TLS] ClientHello recusado: HTTPS/TLS desativado nesta porta");
-                return Err(Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "HTTPS/TLS desativado para esta porta",
-                ));
-            }
-            println!("[TLS] ClientHello detectado; iniciando passthrough para SSH/VPN local");
-            tls::handle_tls(client_stream)
-                .await
-                .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))
-        }
-    }
+    handle_client(client_stream, status, ssh_only).await
 }
 
 fn bypass_enabled_for_port(port: u16) -> bool {
@@ -162,89 +123,32 @@ fn bypass_enabled_in(port: u16, directory: &Path) -> bool {
         .is_file()
 }
 
-/// Status customizados para SSH_PROXY com payload HTTP; sempre termina no SSH local.
-async fn handle_bypass_http_client(
-    mut client_stream: TcpStream,
-    status: &str,
-) -> Result<(), Error> {
-    client_stream.set_nodelay(true)?;
-    let _preface = read_http_preface(&mut client_stream).await?;
-
-    let followup = bypass_http_followup(status);
-    client_stream.write_all(&followup).await?;
-    client_stream.flush().await?;
+/// BYPASS SSH_PROXY usa o mesmo handshake HTTP do AWProxy e força o backend SSH.
+async fn handle_bypass_http_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
     println!("[BYPASS][HTTP] Encaminhando SSH para 127.0.0.1:22");
-    relay_to_backend(client_stream, "127.0.0.1:22").await
+    handle_http_tunnel(client_stream, status, true, true).await
 }
 
-/// Lê o preâmbulo em vários segmentos sem esperar Content-Length; envia 100 Continue
-/// assim que um cabeçalho Expect correspondente for reconhecido.
-async fn read_http_preface(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
-    let mut preface = Vec::with_capacity(4096);
-    let mut chunk = [0u8; 4096];
-    let first_read = timeout(Duration::from_secs(5), stream.read(&mut chunk))
-        .await
-        .map_err(|_| Error::new(std::io::ErrorKind::TimedOut, "timeout lendo payload HTTP"))??;
-    if first_read == 0 {
-        return Err(Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "cliente fechou antes do payload HTTP",
-        ));
-    }
-    preface.extend_from_slice(&chunk[..first_read.min(MAX_HTTP_PREFACE)]);
-
-    let mut continue_sent = false;
-    if protocol::has_expect_continue(&preface) {
-        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?;
-        stream.flush().await?;
-        continue_sent = true;
-    }
-
-    while preface.len() < MAX_HTTP_PREFACE {
-        let read = timeout(HTTP_PREFACE_IDLE, stream.read(&mut chunk)).await;
-        match read {
-            Ok(Ok(n)) if n > 0 => {
-                let available = MAX_HTTP_PREFACE - preface.len();
-                preface.extend_from_slice(&chunk[..n.min(available)]);
-                if !continue_sent && protocol::has_expect_continue(&preface) {
-                    stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?;
-                    stream.flush().await?;
-                    continue_sent = true;
-                }
-            }
-            Ok(Ok(_)) | Err(_) => break,
-            Ok(Err(error)) => return Err(error),
-        }
-    }
-
-    Ok(preface)
-}
-
-fn bypass_http_followup(status: &str) -> Vec<u8> {
-    format!("HTTP/1.1 101 {status}\r\n\r\nHTTP/1.1 200 {status}\r\n\r\n").into_bytes()
-}
-
-/// Caminho HTTP legado, preservado quando o BYPASS está desligado.
+/// Fluxo HTTP da opção 1 do AWProxy: 101, leitura inicial de 1024 bytes, 200 e relay.
 async fn handle_client(
-    mut client_stream: TcpStream,
+    client_stream: TcpStream,
     status: &str,
     ssh_only: bool,
 ) -> Result<(), Error> {
+    handle_http_tunnel(client_stream, status, ssh_only, false).await
+}
+
+async fn handle_http_tunnel(
+    mut client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
+    force_ssh: bool,
+) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
-    let expect_continue = peek_http_expect_continue(&client_stream).await?;
-    if expect_continue {
-        // Alguns payloads do app esperam 100 Continue antes dos status do túnel.
-        client_stream
-            .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")
-            .await?;
-        client_stream.flush().await?;
-    } else {
-        // Protocolo da opção 1 do AWProxy: envia 101 antes de consumir o payload.
-        client_stream
-            .write_all(format!("HTTP/1.1 101 {status}\r\n\r\n").as_bytes())
-            .await?;
-        client_stream.flush().await?;
-    }
+    client_stream
+        .write_all(&http_status_response(101, status))
+        .await?;
+    client_stream.flush().await?;
 
     let mut initial_payload = [0u8; 1024];
     let bytes_read = timeout(
@@ -265,20 +169,15 @@ async fn handle_client(
         ));
     }
 
-    if expect_continue {
-        client_stream
-            .write_all(format!("HTTP/1.1 101 {status}\r\n\r\n").as_bytes())
-            .await?;
-        client_stream.flush().await?;
-    }
     client_stream
-        .write_all(format!("HTTP/1.1 200 {}\r\n\r\n", status).as_bytes())
+        .write_all(&http_status_response(200, status))
         .await?;
+    client_stream.flush().await?;
 
-    let addr_proxy = if ssh_only {
+    let addr_proxy = if force_ssh || ssh_only {
         "127.0.0.1:22"
     } else {
-        match timeout(Duration::from_millis(200), peek_stream(&client_stream)).await {
+        match timeout(Duration::from_secs(1), peek_stream(&client_stream)).await {
             Ok(Ok(data)) if data.contains("SSH") || data.is_empty() => "127.0.0.1:22",
             Ok(_) => "127.0.0.1:1194",
             Err(_) => "127.0.0.1:22",
@@ -290,17 +189,8 @@ async fn handle_client(
     Ok(())
 }
 
-async fn peek_http_expect_continue(stream: &TcpStream) -> Result<bool, Error> {
-    let mut buffer = vec![0u8; MAX_HTTP_PREFACE];
-    let bytes_peeked = timeout(HTTP_PREFACE_IDLE, stream.peek(&mut buffer))
-        .await
-        .map_err(|_| {
-            Error::new(
-                std::io::ErrorKind::TimedOut,
-                "timeout verificando Expect no payload HTTP",
-            )
-        })??;
-    Ok(protocol::has_expect_continue(&buffer[..bytes_peeked]))
+fn http_status_response(code: u16, status: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {code} {status}\r\n\r\n").into_bytes()
 }
 
 async fn relay_to_backend(mut client_stream: TcpStream, addr: &str) -> Result<(), Error> {
@@ -328,14 +218,23 @@ async fn peek_stream(stream: &TcpStream) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(data).to_string())
 }
 
+async fn peek_tls_client_hello(stream: &TcpStream) -> Result<bool, Error> {
+    let mut first_byte = [0u8; 1];
+    match timeout(Duration::from_millis(50), stream.peek(&mut first_byte)).await {
+        Ok(Ok(bytes)) => Ok(bytes > 0 && first_byte[0] == 0x16),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Ok(false),
+    }
+}
+
 fn get_port() -> u16 {
     let args: Vec<String> = env::args().collect();
     for i in 1..args.len() {
         if (args[i] == "--port" || args[i] == "-p") && i + 1 < args.len() {
-            return args[i + 1].parse().unwrap_or(8080);
+            return args[i + 1].parse().unwrap_or(80);
         }
     }
-    8080
+    80
 }
 
 fn get_quic_port() -> u16 {
@@ -355,7 +254,7 @@ fn get_status() -> String {
             return args[i + 1].clone();
         }
     }
-    "@Mpro".to_string()
+    "@Azpro".to_string()
 }
 
 fn has_arg(arg: &str) -> bool {
@@ -364,7 +263,7 @@ fn has_arg(arg: &str) -> bool {
 
 #[cfg(test)]
 mod bypass_tests {
-    use super::{bypass_enabled_in, bypass_http_followup};
+    use super::{bypass_enabled_in, http_status_response};
     use std::path::Path;
 
     #[test]
@@ -386,10 +285,14 @@ mod bypass_tests {
     }
 
     #[test]
-    fn bypass_http_sends_second_101_then_200_with_configured_status() {
+    fn http_handshake_statuses_use_the_configured_status() {
         assert_eq!(
-            bypass_http_followup("Azpro"),
-            b"HTTP/1.1 101 Azpro\r\n\r\nHTTP/1.1 200 Azpro\r\n\r\n"
+            http_status_response(101, "@Azpro"),
+            b"HTTP/1.1 101 @Azpro\r\n\r\n"
+        );
+        assert_eq!(
+            http_status_response(200, "@Azpro"),
+            b"HTTP/1.1 200 @Azpro\r\n\r\n"
         );
     }
 }
