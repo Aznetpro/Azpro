@@ -185,9 +185,8 @@ open_port() {
     fi
     read -r -p "Nome do status HTTP: " STATUS
     [[ -z "$STATUS" ]] && STATUS="@Azpro"
-    read -r -p "Habilitar o HTTPS/TLS? (S/n, padrão sim): " HTTPS
+    read -r -p "Habilitar o HTTPS/TLS? (s/n): " HTTPS
     HTTPS=${HTTPS,,}
-    [[ -z "$HTTPS" ]] && HTTPS="s"
     if [[ "$HTTPS" != "s" && "$HTTPS" != "n" ]]; then
         echo -e "${RED}Resposta inválida. Use s ou n.${NC}"
         read -r -p "Enter pra continuar..."
