@@ -146,7 +146,7 @@ async fn handle_http_tunnel(
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
-        .write_all(&http_status_response(101, status))
+        .write_all(&http_status_response(101, "Switching Protocols"))
         .await?;
     client_stream.flush().await?;
 
@@ -285,10 +285,10 @@ mod bypass_tests {
     }
 
     #[test]
-    fn http_handshake_statuses_use_the_configured_status() {
+    fn http_handshake_uses_switching_protocols_then_custom_200() {
         assert_eq!(
-            http_status_response(101, "@Azpro"),
-            b"HTTP/1.1 101 @Azpro\r\n\r\n"
+            http_status_response(101, "Switching Protocols"),
+            b"HTTP/1.1 101 Switching Protocols\r\n\r\n"
         );
         assert_eq!(
             http_status_response(200, "@Azpro"),
