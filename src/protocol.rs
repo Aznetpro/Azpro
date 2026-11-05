@@ -79,7 +79,8 @@ pub fn has_expect_continue(data: &[u8]) -> bool {
 }
 
 /// Aguarda um prefixo suficiente para classificação, usando peek para preservar
-/// o handshake para o respectivo handler. Conexões silenciosas usam SSH direto.
+/// o handshake para o respectivo handler. Conexões silenciosas são classificadas
+/// como SSH_DIRECT para que o dispatcher aplique a política da porta.
 pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
     let mut buffer = vec![0u8; MAX_PEEK];
     let mut bytes_peeked = 0usize;
@@ -96,7 +97,7 @@ pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
             }
 
             if bytes_peeked >= MAX_PEEK {
-                return Ok(if is_http_method_prefix(&buffer[..bytes_peeked]) {
+                return Ok(if is_incomplete_http_message(&buffer[..bytes_peeked]) {
                     Protocol::Http
                 } else {
                     Protocol::Unknown
@@ -118,7 +119,7 @@ pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
     match result {
         Ok(classification) => classification,
         Err(_) if bytes_peeked == 0 => Ok(Protocol::SshDirect),
-        Err(_) if is_http_method_prefix(&buffer[..bytes_peeked]) => Ok(Protocol::Http),
+        Err(_) if is_incomplete_http_message(&buffer[..bytes_peeked]) => Ok(Protocol::Http),
         Err(_) => Ok(Protocol::Unknown),
     }
 }
@@ -148,6 +149,21 @@ fn is_http_method_prefix(data: &[u8]) -> bool {
     // Antes do espaço, pode ser um método dividido entre pacotes; depois dele,
     // a linha continua sendo tratada como HTTP até a detecção dos headers.
     true
+}
+
+fn is_incomplete_http_message(data: &[u8]) -> bool {
+    if data.starts_with(b"HTTP/") {
+        return true;
+    }
+    let Some(space) = data.iter().position(|byte| *byte == b' ') else {
+        return false;
+    };
+    let method = &data[..space];
+    let target = &data[space + 1..];
+    !method.is_empty()
+        && method.len() <= 32
+        && method.iter().all(|byte| is_http_token(*byte))
+        && target.iter().any(|byte| !byte.is_ascii_whitespace())
 }
 
 fn is_http_token(byte: u8) -> bool {
@@ -220,7 +236,7 @@ fn starts_with_ascii_case_insensitive(data: &[u8], prefix: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_protocol, has_expect_continue, Protocol};
+    use super::{detect_protocol, has_expect_continue, is_incomplete_http_message, Protocol};
 
     #[test]
     fn detects_binary_and_raw_protocol_signatures() {
@@ -272,6 +288,15 @@ mod tests {
         assert_eq!(detect_protocol(propfind), Some(Protocol::Http));
         assert_eq!(detect_protocol(m_search), Some(Protocol::Http));
         assert_eq!(detect_protocol(b"?? / HTTP/1.1\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn incomplete_http_fallback_rejects_arbitrary_unknown_text() {
+        assert!(!is_incomplete_http_message(b"xyz"));
+        assert!(!is_incomplete_http_message(b"SSH-2.0-test"));
+        assert!(is_incomplete_http_message(b"GET /"));
+        assert!(is_incomplete_http_message(b"UPDATE [host]"));
+        assert!(is_incomplete_http_message(b"HTTP/1.1 200"));
     }
 
     #[test]
