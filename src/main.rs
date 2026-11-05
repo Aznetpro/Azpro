@@ -1,11 +1,8 @@
 mod protocol;
 mod relay;
-mod security;
-mod socks4;
 mod socks5;
 mod ssh;
 mod tls;
-mod websocket;
 
 use std::env;
 use std::io::Error;
@@ -110,18 +107,30 @@ async fn handle_client_protocol(
     }
 
     match detected {
-        protocol::Protocol::Socks4 => socks4::handle_socks4(client_stream)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Socks4 => {
+            println!("[PROTOCOLO] SOCKS4/SOCKS4a desativado na opção 1");
+            Err(Error::new(
+                std::io::ErrorKind::Unsupported,
+                "SOCKS4/SOCKS4a desativado na opção 1",
+            ))
+        }
         protocol::Protocol::Socks5 => socks5::handle_socks5(client_stream)
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::Security => security::handle_security(client_stream, status, ssh_only)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
-        protocol::Protocol::WebSocket => websocket::handle_websocket(client_stream, status)
-            .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string())),
+        protocol::Protocol::Security => {
+            println!("[PROTOCOLO] SECURITY desativado na opção 1");
+            Err(Error::new(
+                std::io::ErrorKind::Unsupported,
+                "SECURITY desativado na opção 1",
+            ))
+        }
+        protocol::Protocol::WebSocket => {
+            println!("[PROTOCOLO] WebSocket desativado na opção 1");
+            Err(Error::new(
+                std::io::ErrorKind::Unsupported,
+                "WebSocket desativado na opção 1",
+            ))
+        }
         protocol::Protocol::Http => handle_client(client_stream, status, ssh_only).await,
         protocol::Protocol::SshDirect | protocol::Protocol::Unknown => {
             println!("[SSH_DIRECT] Encaminhando conexao para 127.0.0.1:22");
