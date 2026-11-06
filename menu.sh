@@ -129,9 +129,9 @@ show_active_ports() {
 
     box_line "${YELLOW}Porta(s) ativa(s):${NC} ${ports_str}"
     if has_any_bypass_enabled; then
-        box_line "${CYAN}BYPASS SSH_PROXY/HTTP: ATIVO${NC}"
+        box_line "${CYAN}BYPASS PROTOCOLO:${NC} ${LIGHT_GREEN}ATIVO${NC}"
     else
-        box_line "${YELLOW}BYPASS SSH_PROXY/HTTP: DESATIVADO${NC}"
+        box_line "${CYAN}BYPASS PROTOCOLO:${NC} ${RED}OFFLINE${NC}"
     fi
 }
 
@@ -799,7 +799,7 @@ show_menu() {
     box_line "${WHITE}[01]${NC} - ABRIR PORTA"
     box_line "${WHITE}[02]${NC} - FECHAR PORTA ABERTA"
     box_line "${WHITE}[03]${NC} - REINICIAR PORTA"
-    box_line "${MAGENTA}[04]${NC} - PROXY + PROTOCOLO"
+    box_line "${MAGENTA}[04]${NC} - XHTTP + SSL TUNNEL"
     box_line "${BLUE}[05]${NC} - PROTOCOLO INTEGRADO"
     box_line "${GREEN}[06]${NC} - ATUALIZAR PELO GITHUB"
     box_line "${MAGENTA}[07]${NC} - BYPASS SSH_PROXY (HTTP)"
@@ -818,7 +818,7 @@ while true; do
         01|1) open_port ;;
         02|2) close_port ;;
         03|3) restart_port ;;
-        04|4) manage_special_service "PROXY + PROTOCOLO XHTTP" "proxy-443.service" open_xhttp ;;
+        04|4) manage_special_service "XHTTP + SSL TUNNEL" "proxy-443.service" open_xhttp ;;
         05|5) manage_special_service "PROTOCOLO INTEGRADO" "proxy-integrated.service" open_integrated ;;
         06|6) update_from_github ;;
         07|7) manage_bypass ;;
