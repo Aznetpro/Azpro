@@ -803,7 +803,7 @@ show_menu() {
     box_line "${WHITE}[05]${NC} ${GREEN}- PROTOCOLO INTEGRADO${NC}"
     box_line "${WHITE}[06]${NC} ${GREEN}- ATUALIZAR PELO GITHUB${NC}"
     box_line "${WHITE}[07]${NC} ${GREEN}- BYPASS SSH_PROXY (HTTP)${NC}"
-    box_line "${RED}[08]${NC} ${GREEN}- DESINSTALAR PROXY${NC}"
+    box_line "${RED}[08]${NC} ${GREEN}- DESINSTALAR AZPRO${NC}"
     box_line ""
     box_line "${WHITE}[00]${NC} - SAIR"
     box_bottom
