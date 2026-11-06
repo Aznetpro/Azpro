@@ -823,7 +823,7 @@ while true; do
         06|6) update_from_github ;;
         07|7) manage_bypass ;;
         08|8) uninstall_proxy ;;
-        00|0) exit 0 ;;
+        00|0) echo "👋 Saindo..."; exit 0 ;;
         *) sleep 1 ;;
     esac
 done
