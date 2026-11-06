@@ -796,14 +796,14 @@ show_menu() {
     box_mid
     show_active_ports
     box_mid
-    box_line "${WHITE}[01]${NC} ${RED}- ABRIR PORTA${NC}"
-    box_line "${WHITE}[02]${NC} ${RED}- FECHAR PORTA ABERTA${NC}"
-    box_line "${WHITE}[03]${NC} ${RED}- REINICIAR PORTA${NC}"
-    box_line "${WHITE}[04]${NC} ${RED}- XHTTP + SSL TUNNEL${NC}"
-    box_line "${WHITE}[05]${NC} ${RED}- PROTOCOLO INTEGRADO${NC}"
-    box_line "${WHITE}[06]${NC} ${RED}- ATUALIZAR PELO GITHUB${NC}"
-    box_line "${WHITE}[07]${NC} ${RED}- BYPASS SSH_PROXY (HTTP)${NC}"
-    box_line "${WHITE}[08]${NC} ${RED}- DESINSTALAR PROXY${NC}"
+    box_line "${WHITE}[01]${NC} ${GREEN}- ABRIR PORTA${NC}"
+    box_line "${WHITE}[02]${NC} ${GREEN}- FECHAR PORTA ABERTA${NC}"
+    box_line "${WHITE}[03]${NC} ${GREEN}- REINICIAR PORTA${NC}"
+    box_line "${WHITE}[04]${NC} ${GREEN}- XHTTP + SSL TUNNEL${NC}"
+    box_line "${WHITE}[05]${NC} ${GREEN}- PROTOCOLO INTEGRADO${NC}"
+    box_line "${WHITE}[06]${NC} ${GREEN}- ATUALIZAR PELO GITHUB${NC}"
+    box_line "${WHITE}[07]${NC} ${GREEN}- BYPASS SSH_PROXY (HTTP)${NC}"
+    box_line "${RED}[08]${NC} ${GREEN}- DESINSTALAR PROXY${NC}"
     box_line ""
     box_line "${WHITE}[00]${NC} - SAIR"
     box_bottom
