@@ -14,6 +14,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 # Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+LIGHT_GREEN='\033[1;92m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 WHITE='\033[0;37m'
@@ -71,6 +72,25 @@ has_any_bypass_enabled() {
         [[ -f "$FLAG" ]] && return 0
     done
     return 1
+}
+
+has_active_azpro_service() {
+    local SERVICE_FILE SERVICE
+    for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+        [[ -f "$SERVICE_FILE" ]] || continue
+        grep -Eq '^[[:space:]]*ExecStart=.*/opt/mpro/(proxy|proxy-xhttp|proxy-integrated|proxy-websocket)([[:space:]]|$)' "$SERVICE_FILE" || continue
+        SERVICE=$(basename "$SERVICE_FILE")
+        systemctl is-active --quiet "$SERVICE" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+show_execution_status() {
+    if has_active_azpro_service; then
+        box_line "Status: EM EXECUÇÃO (${LIGHT_GREEN}ONLINE${NC})"
+    else
+        box_line "Status: EM EXECUÇÃO (${RED}OFFLINE${NC})"
+    fi
 }
 
 show_active_ports() {
@@ -772,7 +792,7 @@ show_menu() {
     show_banner
     echo ""
     box_top
-    box_line "${WHITE}${BOLD}Azpro PROXY Free V12.${NC}"
+    show_execution_status
     box_mid
     show_active_ports
     box_mid
@@ -783,7 +803,7 @@ show_menu() {
     box_line "${BLUE}[05]${NC} - PROTOCOLO INTEGRADO"
     box_line "${GREEN}[06]${NC} - ATUALIZAR PELO GITHUB"
     box_line "${MAGENTA}[07]${NC} - BYPASS SSH_PROXY (HTTP)"
-    box_line "${RED}[08]${NC} - DESINSTALAR PROXY"
+    box_line "${WHITE}[08]${NC} - DESINSTALAR PROXY"
     box_line ""
     box_line "${WHITE}[00]${NC} - SAIR"
     box_bottom
