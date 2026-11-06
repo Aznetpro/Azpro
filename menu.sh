@@ -665,9 +665,9 @@ uninstall_proxy() {
     box_top
     box_line "${RED}${BOLD}DESINSTALAR Azpro${NC}"
     box_mid
-    box_line "Para os serviços do proxy e remove os binários."
-    box_line "Também remove os certificados TLS em /opt/mpro."
-    box_line "SSH, Rust, OpenSSL e outros arquivos ficam preservados."
+    box_line "Para serviços e remove binários do proxy."
+    box_line "Remove certificados TLS de /opt/mpro."
+    box_line "Preserva SSH, Rust, OpenSSL e demais arquivos."
     box_mid
     echo ""
 
@@ -682,7 +682,9 @@ uninstall_proxy() {
         return 1
     fi
 
-    read -r -p "Deseja Desinstalar Proxy? (s/n): " CONFIRM
+    echo -e "${YELLOW}Para desinstalar o proxy, digite: s${NC}"
+    echo -e "${YELLOW}Para cancelar a desinstalação, digite: n${NC}"
+    read -r -p "Escolha (s/n): " CONFIRM
     if [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]]; then
         echo -e "${YELLOW}Desinstalação cancelada.${NC}"
         read -r -p "Enter para voltar..." _
