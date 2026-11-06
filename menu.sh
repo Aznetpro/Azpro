@@ -62,7 +62,7 @@ box_bottom() {
 }
 
 show_banner() {
-echo -e "${CYAN}${BOLD}    A Z P R O  PROTOCOLO  FREE${NC}"
+echo -e "${CYAN}${BOLD}    A Z P R O  P R O T O C O L O  F R E E${NC}"
 echo -e "${BLUE}${BOLD}----------------------------------------${NC}"
 }
 
