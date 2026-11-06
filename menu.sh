@@ -796,14 +796,14 @@ show_menu() {
     box_mid
     show_active_ports
     box_mid
-    box_line "${WHITE}[01]${NC} - ABRIR PORTA"
-    box_line "${WHITE}[02]${NC} - FECHAR PORTA ABERTA"
-    box_line "${WHITE}[03]${NC} - REINICIAR PORTA"
-    box_line "${WHITE}[04]${NC} ${MAGENTA}- XHTTP + SSL TUNNEL${NC}"
-    box_line "${WHITE}[05]${NC} ${BLUE}- PROTOCOLO INTEGRADO${NC}"
-    box_line "${WHITE}[06]${NC} ${GREEN}- ATUALIZAR PELO GITHUB${NC}"
-    box_line "${WHITE}[07]${NC} ${MAGENTA}- BYPASS SSH_PROXY (HTTP)${NC}"
-    box_line "${RED}[08]${NC} - DESINSTALAR PROXY"
+    box_line "${RED}[01] - ABRIR PORTA${NC}"
+    box_line "${RED}[02] - FECHAR PORTA ABERTA${NC}"
+    box_line "${RED}[03] - REINICIAR PORTA${NC}"
+    box_line "${RED}[04] - XHTTP + SSL TUNNEL${NC}"
+    box_line "${RED}[05] - PROTOCOLO INTEGRADO${NC}"
+    box_line "${RED}[06] - ATUALIZAR PELO GITHUB${NC}"
+    box_line "${RED}[07] - BYPASS SSH_PROXY (HTTP)${NC}"
+    box_line "${RED}[08] - DESINSTALAR PROXY${NC}"
     box_line ""
     box_line "${WHITE}[00]${NC} - SAIR"
     box_bottom
