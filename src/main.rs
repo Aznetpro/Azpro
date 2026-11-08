@@ -193,16 +193,16 @@ fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
 /// BYPASS SSH_PROXY usa o mesmo handshake HTTP do AWProxy e força o backend SSH.
 async fn handle_bypass_http_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
     println!("[BYPASS][HTTP] Encaminhando SSH para 127.0.0.1:22");
-    handle_http_tunnel(client_stream, status, true, true, false).await
+    handle_legacy_http_tunnel(client_stream, status, true, true).await
 }
 
-/// Handler legado da opção 1: preserva o handshake original 101, leitura e 200.
+/// Handler original da opção 1, mantido sem as mudanças de multiprotocolo.
 async fn handle_client(
     client_stream: TcpStream,
     status: &str,
     ssh_only: bool,
 ) -> Result<(), Error> {
-    handle_http_tunnel(client_stream, status, ssh_only, false, false).await
+    handle_legacy_http_tunnel(client_stream, status, ssh_only, false).await
 }
 
 async fn handle_multiprotocol_http_client(
@@ -210,15 +210,46 @@ async fn handle_multiprotocol_http_client(
     status: &str,
     ssh_only: bool,
 ) -> Result<(), Error> {
-    handle_http_tunnel(client_stream, status, ssh_only, false, true).await
+    handle_multiprotocol_http_tunnel(client_stream, status, ssh_only).await
 }
 
-async fn handle_http_tunnel(
+async fn handle_legacy_http_tunnel(
     mut client_stream: TcpStream,
     status: &str,
     ssh_only: bool,
     force_ssh: bool,
-    multi_status: bool,
+) -> Result<(), Error> {
+    client_stream.set_nodelay(true)?;
+    client_stream
+        .write_all(&http_status_response(101, status))
+        .await?;
+    client_stream.flush().await?;
+
+    let mut initial_payload = [0u8; 1024];
+    let _ = client_stream.read(&mut initial_payload).await?;
+    client_stream
+        .write_all(&http_legacy_followup(status))
+        .await?;
+    client_stream.flush().await?;
+
+    let addr_proxy = if force_ssh || ssh_only {
+        "127.0.0.1:22"
+    } else {
+        match timeout(Duration::from_secs(1), peek_stream(&client_stream)).await {
+            Ok(Ok(data)) if data.contains("SSH") || data.is_empty() => "127.0.0.1:22",
+            Ok(_) => "127.0.0.1:1194",
+            Err(_) => "127.0.0.1:22",
+        }
+    };
+    println!("[HTTP] Backend selecionado: {}", addr_proxy);
+    relay_to_backend_legacy(client_stream, addr_proxy).await?;
+    Ok(())
+}
+
+async fn handle_multiprotocol_http_tunnel(
+    mut client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
@@ -230,7 +261,7 @@ async fn handle_http_tunnel(
     let initial_len = client_stream.read(&mut initial_payload).await?;
 
     let initial_text = String::from_utf8_lossy(&initial_payload[..initial_len]);
-    let addr_proxy = if force_ssh || ssh_only {
+    let addr_proxy = if ssh_only {
         "127.0.0.1:22"
     } else {
         if initial_text.contains("SSH") || initial_len == 0 {
@@ -240,12 +271,9 @@ async fn handle_http_tunnel(
         }
     };
     println!("[HTTP] Backend selecionado: {}", addr_proxy);
-    let followup = if multi_status {
-        http_handshake_followup(status)
-    } else {
-        http_legacy_followup(status)
-    };
-    client_stream.write_all(&followup).await?;
+    client_stream
+        .write_all(&http_handshake_followup(status))
+        .await?;
     client_stream.flush().await?;
     relay_to_backend(client_stream, addr_proxy, &initial_payload[..initial_len]).await
 }
@@ -262,6 +290,15 @@ fn http_handshake_followup(status: &str) -> Vec<u8> {
 
 fn http_legacy_followup(status: &str) -> Vec<u8> {
     http_status_response(200, status)
+}
+
+async fn relay_to_backend_legacy(mut client_stream: TcpStream, addr: &str) -> Result<(), Error> {
+    let mut server_stream = timeout(Duration::from_secs(3), TcpStream::connect(addr))
+        .await
+        .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout conectando backend"))??;
+    server_stream.set_nodelay(true)?;
+    let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
+    Ok(())
 }
 
 async fn relay_to_backend(
@@ -296,6 +333,12 @@ async fn peek_tls_client_hello(stream: &TcpStream) -> Result<bool, Error> {
         Ok(Err(error)) => Err(error),
         Err(_) => Ok(false),
     }
+}
+
+async fn peek_stream(stream: &TcpStream) -> Result<String, Error> {
+    let mut peek_buffer = vec![0; 8192];
+    let bytes_peeked = stream.peek(&mut peek_buffer).await?;
+    Ok(String::from_utf8_lossy(&peek_buffer[..bytes_peeked]).to_string())
 }
 
 fn get_port() -> u16 {
