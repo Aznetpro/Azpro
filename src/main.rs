@@ -257,10 +257,14 @@ async fn handle_multiprotocol_http_tunnel(
         .await?;
     client_stream.flush().await?;
 
-    // Esse bloco é o preâmbulo HTTP do SSH_PROXY, não um pacote SSH. O código
-    // do proxy legado o consumia antes do relay; reenviá-lo ao sshd causa reset.
-    let mut http_preamble = [0u8; 1024];
-    let _ = client_stream.read(&mut http_preamble).await?;
+    // Remover somente o cabeçalho HTTP; bytes de túnel que cheguem junto
+    // com ele precisam ser preservados para o backend SSH.
+    let tunnel_payload = timeout(
+        Duration::from_secs(3),
+        read_http_preamble(&mut client_stream),
+    )
+    .await
+    .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout lendo preâmbulo HTTP"))??;
 
     let addr_proxy = "127.0.0.1:22";
     println!("[MULTIPROTOCOLO][HTTP] SSH_PROXY -> {}", addr_proxy);
@@ -268,7 +272,7 @@ async fn handle_multiprotocol_http_tunnel(
         .write_all(&http_handshake_followup(status))
         .await?;
     client_stream.flush().await?;
-    relay_to_backend(client_stream, addr_proxy).await
+    relay_to_backend(client_stream, addr_proxy, &tunnel_payload).await
 }
 
 fn http_status_response(code: u16, status: &str) -> Vec<u8> {
@@ -294,11 +298,50 @@ async fn relay_to_backend_legacy(mut client_stream: TcpStream, addr: &str) -> Re
     Ok(())
 }
 
-async fn relay_to_backend(mut client_stream: TcpStream, addr: &str) -> Result<(), Error> {
+const MAX_HTTP_PREAMBLE: usize = 16 * 1024;
+
+async fn read_http_preamble(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
+    let mut buffered = Vec::with_capacity(2048);
+    let mut chunk = [0u8; 1024];
+    loop {
+        if let Some(header_end) = find_http_header_end(&buffered) {
+            return Ok(buffered[header_end..].to_vec());
+        }
+        if buffered.len() >= MAX_HTTP_PREAMBLE {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "preâmbulo HTTP muito grande",
+            ));
+        }
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "preâmbulo HTTP incompleto",
+            ));
+        }
+        buffered.extend_from_slice(&chunk[..read]);
+    }
+}
+
+fn find_http_header_end(data: &[u8]) -> Option<usize> {
+    data.windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+}
+
+async fn relay_to_backend(
+    mut client_stream: TcpStream,
+    addr: &str,
+    initial_payload: &[u8],
+) -> Result<(), Error> {
     let mut server_stream = timeout(Duration::from_secs(3), TcpStream::connect(addr))
         .await
         .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout conectando backend"))??;
     server_stream.set_nodelay(true)?;
+    if !initial_payload.is_empty() {
+        server_stream.write_all(initial_payload).await?;
+    }
     let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
     Ok(())
 }
@@ -364,8 +407,8 @@ fn has_arg(arg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        bypass_enabled_in, http_handshake_followup, http_legacy_followup, http_status_response,
-        multiprotocol_enabled_in,
+        bypass_enabled_in, find_http_header_end, http_handshake_followup, http_legacy_followup,
+        http_status_response, multiprotocol_enabled_in,
     };
     use std::path::Path;
 
@@ -416,5 +459,16 @@ mod tests {
             b"HTTP/1.1 101 Aznet\r\n\r\n"
         );
         assert_eq!(http_legacy_followup("Aznet"), b"HTTP/1.1 200 Aznet\r\n\r\n");
+    }
+
+    #[test]
+    fn http_preamble_boundary_preserves_coalesced_ssh_payload() {
+        let data = b"CONNECT tunnel HTTP/1.1\r\nHost: example\r\n\r\nSSH-2.0-client";
+        let end = find_http_header_end(data).unwrap();
+        assert_eq!(
+            &data[..end],
+            b"CONNECT tunnel HTTP/1.1\r\nHost: example\r\n\r\n"
+        );
+        assert_eq!(&data[end..], b"SSH-2.0-client");
     }
 }
