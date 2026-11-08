@@ -17,7 +17,7 @@ Proxy multi-protocolo em Rust com suporte exclusivo para o protocolo xHTTP (Spli
 
 ```bash
 # Clonar ou copiar os arquivos para o servidor
-git clone https://github.com/Jbpro2/Azpro.git
+git clone https://github.com/Lacasx1/Azpro.git
 cd Azpro
 
 # Substituir os arquivos pelo v2.0
