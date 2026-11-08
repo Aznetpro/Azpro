@@ -620,6 +620,7 @@ update_from_github() {
     box_mid
     box_line "A atualização recompila os binários."
     box_line "Os serviços podem reiniciar."
+    box_line "Ao terminar, o menu será recarregado automaticamente."
     box_bottom
     echo ""
     read -r -p "Continuar com a atualização? (s/N): " CONFIRM
@@ -667,6 +668,9 @@ update_from_github() {
         echo -e "${RED}A atualização falhou; confira as mensagens acima.${NC}"
     fi
     read -r -p "Enter para voltar ao menu..." _
+    if [[ $UPDATE_RESULT -eq 0 && -x /opt/mpro/menu ]]; then
+        exec bash /opt/mpro/menu
+    fi
 }
 
 remove_owned_link() {
