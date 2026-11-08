@@ -160,7 +160,7 @@ async fn handle_multiprotocol_client(
         Protocol::Security => security::handle_security(client_stream, status, ssh_only)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SECURITY: {e}"))),
-        Protocol::Http => handle_client(client_stream, status, ssh_only).await,
+        Protocol::Http => handle_multiprotocol_http_client(client_stream, status, ssh_only).await,
         Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SSH direto: {e}"))),
@@ -193,16 +193,24 @@ fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
 /// BYPASS SSH_PROXY usa o mesmo handshake HTTP do AWProxy e força o backend SSH.
 async fn handle_bypass_http_client(client_stream: TcpStream, status: &str) -> Result<(), Error> {
     println!("[BYPASS][HTTP] Encaminhando SSH para 127.0.0.1:22");
-    handle_http_tunnel(client_stream, status, true, true).await
+    handle_http_tunnel(client_stream, status, true, true, false).await
 }
 
-/// Handshake compatível com Aznet: 101, leitura do preâmbulo, segundo 101, 200 e relay.
+/// Handler legado da opção 1: preserva o handshake original 101, leitura e 200.
 async fn handle_client(
     client_stream: TcpStream,
     status: &str,
     ssh_only: bool,
 ) -> Result<(), Error> {
-    handle_http_tunnel(client_stream, status, ssh_only, false).await
+    handle_http_tunnel(client_stream, status, ssh_only, false, false).await
+}
+
+async fn handle_multiprotocol_http_client(
+    client_stream: TcpStream,
+    status: &str,
+    ssh_only: bool,
+) -> Result<(), Error> {
+    handle_http_tunnel(client_stream, status, ssh_only, false, true).await
 }
 
 async fn handle_http_tunnel(
@@ -210,6 +218,7 @@ async fn handle_http_tunnel(
     status: &str,
     ssh_only: bool,
     force_ssh: bool,
+    multi_status: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
@@ -231,9 +240,12 @@ async fn handle_http_tunnel(
         }
     };
     println!("[HTTP] Backend selecionado: {}", addr_proxy);
-    client_stream
-        .write_all(&http_handshake_followup(status))
-        .await?;
+    let followup = if multi_status {
+        http_handshake_followup(status)
+    } else {
+        http_legacy_followup(status)
+    };
+    client_stream.write_all(&followup).await?;
     client_stream.flush().await?;
     relay_to_backend(client_stream, addr_proxy, &initial_payload[..initial_len]).await
 }
@@ -246,6 +258,10 @@ fn http_handshake_followup(status: &str) -> Vec<u8> {
     let mut response = http_status_response(101, status);
     response.extend_from_slice(&http_status_response(200, status));
     response
+}
+
+fn http_legacy_followup(status: &str) -> Vec<u8> {
+    http_status_response(200, status)
 }
 
 async fn relay_to_backend(
@@ -319,7 +335,8 @@ fn has_arg(arg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        bypass_enabled_in, http_handshake_followup, http_status_response, multiprotocol_enabled_in,
+        bypass_enabled_in, http_handshake_followup, http_legacy_followup, http_status_response,
+        multiprotocol_enabled_in,
     };
     use std::path::Path;
 
@@ -361,5 +378,14 @@ mod tests {
             http_handshake_followup("Aznet"),
             b"HTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 200 Aznet\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn option_one_keeps_legacy_single_101_then_200_handshake() {
+        assert_eq!(
+            http_status_response(101, "Aznet"),
+            b"HTTP/1.1 101 Aznet\r\n\r\n"
+        );
+        assert_eq!(http_legacy_followup("Aznet"), b"HTTP/1.1 200 Aznet\r\n\r\n");
     }
 }
