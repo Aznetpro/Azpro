@@ -70,9 +70,9 @@ show_banner() {
     echo -e "${BLUE}${BOLD}${SEPARATOR}${NC}"
 }
 
-has_any_bypass_enabled() {
+has_any_multiprotocol_enabled() {
     local FLAG
-    for FLAG in "${BYPASS_DIR}"/bypass-http-ssh-*.enabled; do
+    for FLAG in "${BYPASS_DIR}"/multiprotocol-*.enabled; do
         [[ -f "$FLAG" ]] && return 0
     done
     return 1
@@ -132,10 +132,10 @@ show_active_ports() {
     fi
 
     box_line "${YELLOW}Porta(s) ativa(s):${NC} ${ports_str}"
-    if has_any_bypass_enabled; then
-        box_line "${CYAN}BYPASS PROTOCOLO:${NC} ${LIGHT_GREEN}ATIVO${NC}"
+    if has_any_multiprotocol_enabled; then
+        box_line "${CYAN}MULTIPROTOCOLO:${NC} ${LIGHT_GREEN}ATIVO${NC}"
     else
-        box_line "${CYAN}BYPASS PROTOCOLO:${NC} ${RED}OFFLINE${NC}"
+        box_line "${CYAN}MULTIPROTOCOLO:${NC} ${RED}OFFLINE${NC}"
     fi
 }
 
@@ -321,8 +321,8 @@ EOF
     read -p "Pressione Enter para continuar..."
 }
 
-bypass_flag_for_port() {
-    printf '%s/bypass-http-ssh-%s.enabled' "$BYPASS_DIR" "$1"
+multiprotocol_flag_for_port() {
+    printf '%s/multiprotocol-%s.enabled' "$BYPASS_DIR" "$1"
 }
 
 is_managed_numeric_port_service() {
@@ -335,9 +335,9 @@ is_managed_numeric_port_service() {
     grep -Fq "ExecStart=${LKPROXY} " "$SERVICE_FILE"
 }
 
-toggle_port_bypass() {
+toggle_port_multiprotocol() {
     local PORT="$1" SERVICE="proxy-${1}.service" FLAG CONFIRM="" PREVIOUS=false
-    FLAG=$(bypass_flag_for_port "$PORT")
+    FLAG=$(multiprotocol_flag_for_port "$PORT")
     systemctl is-active --quiet "$SERVICE" 2>/dev/null || {
         echo -e "${RED}A porta ${PORT} não está mais ativa.${NC}"
         read -r -p "Enter para continuar..." _
@@ -358,7 +358,7 @@ toggle_port_bypass() {
         rm -f -- "$FLAG" || return 1
     else
         touch "$FLAG" || {
-            echo -e "${RED}Não foi possível ativar o BYPASS na porta ${PORT}.${NC}"
+            echo -e "${RED}Não foi possível ativar o multiprotocolo na porta ${PORT}.${NC}"
             read -r -p "Enter para continuar..." _
             return 1
         }
@@ -366,9 +366,9 @@ toggle_port_bypass() {
 
     if systemctl restart "$SERVICE" 2>/dev/null; then
         if [[ "$PREVIOUS" == true ]]; then
-            echo -e "${YELLOW}BYPASS SSH_PROXY/HTTP DESATIVADO na porta ${PORT}.${NC}"
+            echo -e "${YELLOW}Multiprotocolo desativado na porta ${PORT}.${NC}"
         else
-            echo -e "${GREEN}BYPASS SSH_PROXY/HTTP ATIVADO na porta ${PORT}.${NC}"
+            echo -e "${GREEN}Multiprotocolo ativado na porta ${PORT}; status HTTP configurado preservado.${NC}"
         fi
     else
         if [[ "$PREVIOUS" == true ]]; then
@@ -382,7 +382,7 @@ toggle_port_bypass() {
     read -r -p "Enter para continuar..." _
 }
 
-manage_bypass() {
+manage_multiprotocol() {
     local ACTION SERVICE_FILE SERVICE_NAME PORT FLAG INDEX
     local -a ACTIVE_PORTS=()
     while true; do
@@ -404,19 +404,21 @@ manage_bypass() {
         show_banner
         echo ""
         box_top
-        box_line "${WHITE}${BOLD}BYPASS SSH_PROXY (HTTP)${NC}"
+        box_line "${WHITE}${BOLD}MULTIPROTOCOLO + STATUS HTTP + TCP${NC}"
         box_mid
+        box_line "${CYAN}Detecta SOCKS4/5, TLS, HTTP, WebSocket, SECURITY e SSH.${NC}"
+        box_line "${CYAN}TCP desconhecido usa somente SSH/VPN locais (22/1194).${NC}"
         if ((${#ACTIVE_PORTS[@]} == 0)); then
             box_line "${YELLOW}Nenhuma porta Azpro ativa.${NC}"
         else
             for ((INDEX=0; INDEX<${#ACTIVE_PORTS[@]}; INDEX++)); do
                 PORT=${ACTIVE_PORTS[$INDEX]}
-                FLAG=$(bypass_flag_for_port "$PORT")
+                FLAG=$(multiprotocol_flag_for_port "$PORT")
                 printf -v ACTION '%02d' "$((INDEX + 1))"
                 if [[ -f "$FLAG" ]]; then
-                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - BYPASS ${GREEN}ATIVO${NC}"
+                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - MULTIPROTOCOLO ${GREEN}ATIVO${NC}"
                 else
-                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - BYPASS ${YELLOW}DESATIVADO${NC}"
+                    box_line "${WHITE}[${ACTION}]${NC} Porta ${PORT} - MULTIPROTOCOLO ${YELLOW}DESATIVADO${NC}"
                 fi
             done
         fi
@@ -429,7 +431,7 @@ manage_bypass() {
 
         if [[ "$ACTION" =~ ^[0-9]+$ ]] && ((10#$ACTION >= 1 && 10#$ACTION <= ${#ACTIVE_PORTS[@]})); then
             PORT=${ACTIVE_PORTS[$((10#$ACTION - 1))]}
-            toggle_port_bypass "$PORT"
+            toggle_port_multiprotocol "$PORT"
         fi
     done
 }
@@ -806,7 +808,7 @@ show_menu() {
     box_line "${WHITE}[04]${NC} ${GREEN}- XHTTP + SSL TUNNEL${NC}"
     box_line "${WHITE}[05]${NC} ${GREEN}- PROTOCOLO INTEGRADO${NC}"
     box_line "${WHITE}[06]${NC} ${GREEN}- ATUALIZAR PELO GITHUB${NC}"
-    box_line "${WHITE}[07]${NC} ${GREEN}- BYPASS SSH_PROXY (HTTP)${NC}"
+    box_line "${WHITE}[07]${NC} ${GREEN}- MULTIPROTOCOLO + STATUS + TCP${NC}"
     box_line "${RED}[08]${NC} ${GREEN}- DESINSTALAR AZPRO${NC}"
     box_line ""
     box_line "${WHITE}[00]${NC} - SAIR"
@@ -825,7 +827,7 @@ while true; do
         04|4) manage_special_service "XHTTP + SSL TUNNEL" "proxy-443.service" open_xhttp ;;
         05|5) manage_special_service "PROTOCOLO INTEGRADO" "proxy-integrated.service" open_integrated ;;
         06|6) update_from_github ;;
-        07|7) manage_bypass ;;
+        07|7) manage_multiprotocol ;;
         08|8) uninstall_proxy ;;
         00|0) echo "👋 Saindo..."; exit 0 ;;
         *) sleep 1 ;;
