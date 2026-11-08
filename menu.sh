@@ -645,7 +645,7 @@ update_from_github() {
     }
     echo -e "${CYAN}Baixando instalador mais recente do GitHub...${NC}"
     if ! curl -fsSL --connect-timeout 15 --max-time 60 \
-        "https://raw.githubusercontent.com/Jbpro2/Azpro/main/install.sh" \
+        "https://raw.githubusercontent.com/Lacasx1/Azpro/main/install.sh" \
         -o "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}Falha ao baixar o instalador. Nada foi atualizado.${NC}"
@@ -653,7 +653,7 @@ update_from_github() {
         return
     fi
 
-    if ! grep -q 'REPO_URL="https://github.com/Jbpro2/Azpro.git"' "$UPDATE_SCRIPT"; then
+    if ! grep -q 'REPO_URL="https://github.com/Lacasx1/Azpro.git"' "$UPDATE_SCRIPT"; then
         rm -f "$UPDATE_SCRIPT"
         echo -e "${RED}O arquivo baixado não passou na validação do repositório.${NC}"
         read -r -p "Enter para continuar..." _
