@@ -160,9 +160,7 @@ async fn handle_multiprotocol_client(
         Protocol::Security => security::handle_security(client_stream, status, ssh_only)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SECURITY: {e}"))),
-        // O cliente SSH_PROXY usa HTTP apenas como preâmbulo; seu túnel deve
-        // terminar no SSH local, sem inferir VPN a partir do payload.
-        Protocol::Http => handle_http_tunnel(client_stream, status, true, true).await,
+        Protocol::Http => handle_client(client_stream, status, ssh_only).await,
         Protocol::SshDirect => ssh::handle_ssh_tunnel(client_stream, "127.0.0.1:22")
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SSH direto: {e}"))),
@@ -233,41 +231,11 @@ async fn handle_http_tunnel(
         }
     };
     println!("[HTTP] Backend selecionado: {}", addr_proxy);
-    let mut server_stream = match timeout(Duration::from_secs(3), TcpStream::connect(addr_proxy))
-        .await
-    {
-        Ok(Ok(stream)) => stream,
-        Ok(Err(error)) => {
-            let _ = client_stream
-                .write_all(
-                    b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-                )
-                .await;
-            return Err(error);
-        }
-        Err(_) => {
-            let _ = client_stream
-                .write_all(b"HTTP/1.1 504 Gateway Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
-                .await;
-            return Err(Error::new(
-                ErrorKind::TimedOut,
-                "timeout conectando backend",
-            ));
-        }
-    };
-    server_stream.set_nodelay(true)?;
-
     client_stream
         .write_all(&http_handshake_followup(status))
         .await?;
     client_stream.flush().await?;
-    if initial_len > 0 {
-        server_stream
-            .write_all(&initial_payload[..initial_len])
-            .await?;
-    }
-    let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
-    Ok(())
+    relay_to_backend(client_stream, addr_proxy, &initial_payload[..initial_len]).await
 }
 
 fn http_status_response(code: u16, status: &str) -> Vec<u8> {
@@ -278,6 +246,22 @@ fn http_handshake_followup(status: &str) -> Vec<u8> {
     let mut response = http_status_response(101, status);
     response.extend_from_slice(&http_status_response(200, status));
     response
+}
+
+async fn relay_to_backend(
+    mut client_stream: TcpStream,
+    addr: &str,
+    initial_payload: &[u8],
+) -> Result<(), Error> {
+    let mut server_stream = timeout(Duration::from_secs(3), TcpStream::connect(addr))
+        .await
+        .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout conectando backend"))??;
+    server_stream.set_nodelay(true)?;
+    if !initial_payload.is_empty() {
+        server_stream.write_all(initial_payload).await?;
+    }
+    let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
+    Ok(())
 }
 
 async fn start_udp(port: u16, _status: &str) -> Result<(), Error> {
