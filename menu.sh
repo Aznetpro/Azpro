@@ -406,8 +406,6 @@ manage_multiprotocol() {
         box_top
         box_line "${WHITE}${BOLD}MULTIPROTOCOLO + STATUS HTTP + TCP${NC}"
         box_mid
-        box_line "${CYAN}Detecta SOCKS4/5, TLS, HTTP, WebSocket, SECURITY e SSH.${NC}"
-        box_line "${CYAN}TCP desconhecido usa somente SSH/VPN locais (22/1194).${NC}"
         if ((${#ACTIVE_PORTS[@]} == 0)); then
             box_line "${YELLOW}Nenhuma porta Azpro ativa.${NC}"
         else

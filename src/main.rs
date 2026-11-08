@@ -196,7 +196,7 @@ async fn handle_bypass_http_client(client_stream: TcpStream, status: &str) -> Re
     handle_http_tunnel(client_stream, status, true, true).await
 }
 
-/// Fluxo HTTP da opção 1 do AWProxy: 101, leitura inicial de 1024 bytes, 200 e relay.
+/// Handshake compatível com Aznet: 101, leitura do preâmbulo, segundo 101, 200 e relay.
 async fn handle_client(
     client_stream: TcpStream,
     status: &str,
@@ -221,7 +221,7 @@ async fn handle_http_tunnel(
     let initial_len = client_stream.read(&mut initial_payload).await?;
 
     client_stream
-        .write_all(&http_status_response(200, status))
+        .write_all(&http_handshake_followup(status))
         .await?;
     client_stream.flush().await?;
 
@@ -241,6 +241,12 @@ async fn handle_http_tunnel(
 
 fn http_status_response(code: u16, status: &str) -> Vec<u8> {
     format!("HTTP/1.1 {code} {status}\r\n\r\n").into_bytes()
+}
+
+fn http_handshake_followup(status: &str) -> Vec<u8> {
+    let mut response = http_status_response(101, status);
+    response.extend_from_slice(&http_status_response(200, status));
+    response
 }
 
 async fn relay_to_backend(
@@ -313,7 +319,9 @@ fn has_arg(arg: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{bypass_enabled_in, http_status_response, multiprotocol_enabled_in};
+    use super::{
+        bypass_enabled_in, http_handshake_followup, http_status_response, multiprotocol_enabled_in,
+    };
     use std::path::Path;
 
     #[test]
@@ -341,6 +349,18 @@ mod tests {
         assert_eq!(
             http_status_response(200, "@Azpro"),
             b"HTTP/1.1 200 @Azpro\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn http_handshake_followup_emits_second_101_then_200_with_same_status() {
+        assert_eq!(
+            http_status_response(101, "Aznet"),
+            b"HTTP/1.1 101 Aznet\r\n\r\n"
+        );
+        assert_eq!(
+            http_handshake_followup("Aznet"),
+            b"HTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 200 Aznet\r\n\r\n"
         );
     }
 }
