@@ -279,10 +279,9 @@ fn http_status_response(code: u16, status: &str) -> Vec<u8> {
     format!("HTTP/1.1 {code} {status}\r\n\r\n").into_bytes()
 }
 
+// O handler já enviou o único 101; o follow-up deve ser apenas o 200 final.
 fn http_handshake_followup(status: &str) -> Vec<u8> {
-    let mut response = http_status_response(101, status);
-    response.extend_from_slice(&http_status_response(200, status));
-    response
+    http_status_response(200, status)
 }
 
 fn http_legacy_followup(status: &str) -> Vec<u8> {
@@ -441,13 +440,11 @@ mod tests {
     }
 
     #[test]
-    fn http_handshake_followup_emits_second_101_then_200_with_same_status() {
+    fn http_handshake_followup_emits_only_200_after_the_initial_101() {
+        let mut handshake = http_status_response(101, "Aznet");
+        handshake.extend_from_slice(&http_handshake_followup("Aznet"));
         assert_eq!(
-            http_status_response(101, "Aznet"),
-            b"HTTP/1.1 101 Aznet\r\n\r\n"
-        );
-        assert_eq!(
-            http_handshake_followup("Aznet"),
+            handshake,
             b"HTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 200 Aznet\r\n\r\n"
         );
     }
