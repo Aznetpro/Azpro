@@ -62,8 +62,12 @@ box_bottom() {
 }
 
 show_banner() {
-echo -e "${CYAN}${BOLD}    A Z P R O  P R O T O C O L O  F R E E${NC}"
-echo -e "${BLUE}${BOLD}--------------------------------------------------------${NC}"
+    local TITLE="A Z P R O  P R O T O C O L O  F R E E" PADDING SEPARATOR
+    printf -v PADDING '%*s' "$(((BOX_WIDTH + 4 - ${#TITLE}) / 2))" ''
+    printf -v SEPARATOR '%*s' "$((BOX_WIDTH + 4))" ''
+    SEPARATOR=${SEPARATOR// /-}
+    echo -e "${CYAN}${BOLD}${PADDING}${TITLE}${NC}"
+    echo -e "${BLUE}${BOLD}${SEPARATOR}${NC}"
 }
 
 has_any_bypass_enabled() {
@@ -615,7 +619,7 @@ update_from_github() {
     box_line "${WHITE}${BOLD}Atualizar Azpro pelo GitHub${NC}"
     box_mid
     box_line "A atualização recompila os binários."
-    box_line "Os serviços podem reiniciar durante o processo."
+    box_line "Os serviços podem reiniciar."
     box_bottom
     echo ""
     read -r -p "Continuar com a atualização? (s/N): " CONFIRM
