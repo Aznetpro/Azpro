@@ -249,7 +249,7 @@ async fn handle_legacy_http_tunnel(
 async fn handle_multiprotocol_http_tunnel(
     mut client_stream: TcpStream,
     status: &str,
-    ssh_only: bool,
+    _ssh_only: bool,
 ) -> Result<(), Error> {
     client_stream.set_nodelay(true)?;
     client_stream
@@ -257,25 +257,18 @@ async fn handle_multiprotocol_http_tunnel(
         .await?;
     client_stream.flush().await?;
 
-    let mut initial_payload = [0u8; 1024];
-    let initial_len = client_stream.read(&mut initial_payload).await?;
+    // Esse bloco é o preâmbulo HTTP do SSH_PROXY, não um pacote SSH. O código
+    // do proxy legado o consumia antes do relay; reenviá-lo ao sshd causa reset.
+    let mut http_preamble = [0u8; 1024];
+    let _ = client_stream.read(&mut http_preamble).await?;
 
-    let initial_text = String::from_utf8_lossy(&initial_payload[..initial_len]);
-    let addr_proxy = if ssh_only {
-        "127.0.0.1:22"
-    } else {
-        if initial_text.contains("SSH") || initial_len == 0 {
-            "127.0.0.1:22"
-        } else {
-            "127.0.0.1:1194"
-        }
-    };
-    println!("[HTTP] Backend selecionado: {}", addr_proxy);
+    let addr_proxy = "127.0.0.1:22";
+    println!("[MULTIPROTOCOLO][HTTP] SSH_PROXY -> {}", addr_proxy);
     client_stream
         .write_all(&http_handshake_followup(status))
         .await?;
     client_stream.flush().await?;
-    relay_to_backend(client_stream, addr_proxy, &initial_payload[..initial_len]).await
+    relay_to_backend(client_stream, addr_proxy).await
 }
 
 fn http_status_response(code: u16, status: &str) -> Vec<u8> {
@@ -301,18 +294,11 @@ async fn relay_to_backend_legacy(mut client_stream: TcpStream, addr: &str) -> Re
     Ok(())
 }
 
-async fn relay_to_backend(
-    mut client_stream: TcpStream,
-    addr: &str,
-    initial_payload: &[u8],
-) -> Result<(), Error> {
+async fn relay_to_backend(mut client_stream: TcpStream, addr: &str) -> Result<(), Error> {
     let mut server_stream = timeout(Duration::from_secs(3), TcpStream::connect(addr))
         .await
         .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout conectando backend"))??;
     server_stream.set_nodelay(true)?;
-    if !initial_payload.is_empty() {
-        server_stream.write_all(initial_payload).await?;
-    }
     let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
     Ok(())
 }
