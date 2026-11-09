@@ -1,7 +1,7 @@
 #!/bin/bash
 # Azpro Installer - Version v3
 
-REPO_URL="https://github.com/Lacasx1/Azpro.git"
+REPO_URL="https://github.com/Aznetpro/Azpro.git"
 REPO_BRANCH="main"
 CMD_NAME="azpro"
 TOTAL_STEPS=7
