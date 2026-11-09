@@ -298,13 +298,25 @@ async fn relay_to_backend_legacy(mut client_stream: TcpStream, addr: &str) -> Re
 }
 
 const MAX_HTTP_PREAMBLE: usize = 16 * 1024;
+const HTTP_PREAMBLE_IDLE: Duration = Duration::from_millis(150);
 
 async fn read_http_preamble(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
     let mut buffered = Vec::with_capacity(2048);
     let mut chunk = [0u8; 1024];
     loop {
-        if let Some(header_end) = find_http_header_end(&buffered) {
-            return Ok(buffered[header_end..].to_vec());
+        if let Some(payload) = strip_http_decoy_prefix(&buffered) {
+            if !payload.is_empty() {
+                return Ok(payload);
+            }
+
+            // Uma payload camuflada pode enviar vários pedidos em sequência.
+            // Dê uma pequena janela para receber o próximo bloco antes de
+            // iniciar o relay; assim nenhum GET/UNLOCK posterior chega ao sshd.
+            match timeout(HTTP_PREAMBLE_IDLE, stream.read(&mut chunk)).await {
+                Ok(Ok(read)) if read > 0 => buffered.extend_from_slice(&chunk[..read]),
+                Ok(Ok(_)) | Ok(Err(_)) | Err(_) => return Ok(Vec::new()),
+            }
+            continue;
         }
         if buffered.len() >= MAX_HTTP_PREAMBLE {
             return Err(Error::new(
@@ -323,10 +335,61 @@ async fn read_http_preamble(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
     }
 }
 
+fn strip_http_decoy_prefix(data: &[u8]) -> Option<Vec<u8>> {
+    let mut offset = 0;
+    let mut found_http = false;
+
+    loop {
+        while data
+            .get(offset)
+            .is_some_and(|byte| *byte == b'\r' || *byte == b'\n')
+        {
+            offset += 1;
+        }
+        if offset == data.len() {
+            return found_http.then(Vec::new);
+        }
+
+        let remaining = &data[offset..];
+        if !looks_like_http_request(remaining) {
+            return found_http.then(|| remaining.to_vec());
+        }
+
+        let Some(header_end) = find_http_header_end(remaining) else {
+            return None;
+        };
+        found_http = true;
+        offset += header_end;
+    }
+}
+
+fn looks_like_http_request(data: &[u8]) -> bool {
+    let line_end = data.iter().position(|byte| *byte == b'\n');
+    let line = match line_end {
+        Some(end) => &data[..end],
+        None => data,
+    };
+    let fields: Vec<&[u8]> = line
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect();
+    fields.len() >= 3 && fields[2].starts_with(b"HTTP/")
+}
+
 fn find_http_header_end(data: &[u8]) -> Option<usize> {
-    data.windows(4)
+    let crlf_end = data
+        .windows(4)
         .position(|window| window == b"\r\n\r\n")
-        .map(|position| position + 4)
+        .map(|position| position + 4);
+    let lf_end = data
+        .windows(2)
+        .position(|window| window == b"\n\n")
+        .map(|position| position + 2);
+    match (crlf_end, lf_end) {
+        (Some(crlf), Some(lf)) => Some(crlf.min(lf)),
+        (Some(end), None) | (None, Some(end)) => Some(end),
+        (None, None) => None,
+    }
 }
 
 async fn relay_to_backend(
@@ -407,7 +470,7 @@ fn has_arg(arg: &str) -> bool {
 mod tests {
     use super::{
         bypass_enabled_in, find_http_header_end, http_handshake_followup, http_legacy_followup,
-        http_status_response, multiprotocol_enabled_in,
+        http_status_response, multiprotocol_enabled_in, strip_http_decoy_prefix,
     };
     use std::path::Path;
 
@@ -467,5 +530,22 @@ mod tests {
             b"CONNECT tunnel HTTP/1.1\r\nHost: example\r\n\r\n"
         );
         assert_eq!(&data[end..], b"SSH-2.0-client");
+    }
+
+    #[test]
+    fn strips_multiple_crlf_and_lf_http_decoys_before_ssh_payload() {
+        let payload = b"GET / HTTP/1.1\r\nHost: example\r\n\r\nGET- / HTTP/1.1\r\nHost: example\r\n\r\nGET / HTTP/1.1\r\nHost:\r\nConnection: Upgrade:\r\nUpgrade: Websocket\r\n\r\n\nUNLOCK / HTTP/1.1\nHost: example\nContent-Length: 9999999999999\n\nSSH-2.0-client";
+        assert_eq!(strip_http_decoy_prefix(payload).unwrap(), b"SSH-2.0-client");
+    }
+
+    #[test]
+    fn keeps_binary_payload_after_http_decoys() {
+        let payload = b"GET / HTTP/1.1\r\nHost: example\r\n\r\n\0\0\0\x1cssh";
+        assert_eq!(strip_http_decoy_prefix(payload).unwrap(), b"\0\0\0\x1cssh");
+    }
+
+    #[test]
+    fn waits_for_the_end_of_an_incomplete_http_decoy() {
+        assert!(strip_http_decoy_prefix(b"GET / HTTP/1.1\r\nHost: example\r\n").is_none());
     }
 }
