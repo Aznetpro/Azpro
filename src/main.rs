@@ -298,7 +298,9 @@ async fn relay_to_backend_legacy(mut client_stream: TcpStream, addr: &str) -> Re
 }
 
 const MAX_HTTP_PREAMBLE: usize = 16 * 1024;
-const HTTP_PREAMBLE_IDLE: Duration = Duration::from_millis(150);
+// Payloads com [split] podem chegar em escritas TCP separadas, especialmente
+// em redes móveis. Aguarde os fragmentos seguintes antes de iniciar o relay.
+const HTTP_PREAMBLE_IDLE: Duration = Duration::from_millis(750);
 
 async fn read_http_preamble(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
     let mut buffered = Vec::with_capacity(2048);
